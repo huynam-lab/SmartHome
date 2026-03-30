@@ -1,0 +1,206 @@
+{
+  "template_version": "3.0",
+  "templates": {
+    "den_thong_minh": {
+      "id": "den_thong_minh",
+      "template_name": "Đèn thông minh",
+      "template_description": "Thiết bị chiếu sáng điều khiển theo từng lệnh rời như bật, tắt, đổi màu hoặc tăng giảm độ sáng.",
+      "device_kind": "light",
+      "control_type": "ir",
+      "capabilities": [
+        "power",
+        "timer"
+      ],
+      "learn_fields": [
+        {
+          "id": "id",
+          "label": "ID thiết bị",
+          "type": "text",
+          "required": false,
+          "placeholder": "Ví dụ: den_san"
+        },
+        {
+          "id": "name",
+          "label": "Tên thiết bị",
+          "type": "text",
+          "required": true,
+          "placeholder": "Ví dụ: Đèn sân"
+        },
+        {
+          "id": "brand",
+          "label": "Thương hiệu",
+          "type": "text",
+          "required": false,
+          "placeholder": "Ví dụ: Generic"
+        },
+        {
+          "id": "model",
+          "label": "Model",
+          "type": "text",
+          "required": false,
+          "placeholder": "Ví dụ: IR Light V1"
+        },
+        {
+          "id": "room",
+          "label": "Phòng/Khu vực",
+          "type": "text",
+          "required": false,
+          "placeholder": "Ví dụ: san"
+        },
+        {
+          "id": "aliases",
+          "label": "Tên gọi thêm",
+          "type": "tags",
+          "required": false,
+          "placeholder": "Ví dụ: đèn sân, den san"
+        }
+      ],
+      "structure": {
+        "use_actions": true,
+        "use_presets": false,
+        "allow_custom_actions": true,
+        "allow_custom_presets": false
+      },
+      "default_state": {
+        "power": "unknown",
+        "availability": "online"
+      }
+    },
+    "dieu_hoa": {
+      "id": "dieu_hoa",
+      "template_name": "Điều hòa",
+      "template_description": "Thiết bị điều hòa có thể học lệnh rời hoặc preset hoàn chỉnh như chế độ mát 25 độ, quạt nhẹ, ngủ đêm.",
+      "device_kind": "air_conditioner",
+      "control_type": "ir",
+      "capabilities": [
+        "power",
+        "temperature",
+        "mode",
+        "fan_speed",
+        "timer"
+      ],
+      "learn_fields": [
+        {
+          "id": "id",
+          "label": "ID thiết bị",
+          "type": "text",
+          "required": false,
+          "placeholder": "Ví dụ: dieu_hoa_phong_khach"
+        },
+        {
+          "id": "name",
+          "label": "Tên thiết bị",
+          "type": "text",
+          "required": true,
+          "placeholder": "Ví dụ: Điều hòa phòng khách"
+        },
+        {
+          "id": "brand",
+          "label": "Thương hiệu",
+          "type": "text",
+          "required": false,
+          "placeholder": "Ví dụ: Panasonic"
+        },
+        {
+          "id": "model",
+          "label": "Model",
+          "type": "text",
+          "required": false,
+          "placeholder": "Ví dụ: CU/CS-XPU9WKH-8"
+        },
+        {
+          "id": "room",
+          "label": "Phòng/Khu vực",
+          "type": "text",
+          "required": false,
+          "placeholder": "Ví dụ: phong_khach"
+        },
+        {
+          "id": "aliases",
+          "label": "Tên gọi thêm",
+          "type": "tags",
+          "required": false,
+          "placeholder": "Ví dụ: điều hòa khách, may lanh khach"
+        }
+      ],
+      "structure": {
+        "use_actions": true,
+        "use_presets": true,
+        "allow_custom_actions": true,
+        "allow_custom_presets": true
+      },
+      "default_state": {
+        "power": "unknown",
+        "mode": null,
+        "temperature": null,
+        "fan_speed": null,
+        "availability": "online"
+      }
+    },
+    "cong_tac": {
+      "id": "cong_tac",
+      "template_name": "Công tắc thông minh",
+      "template_description": "Thiết bị đóng cắt bằng relay hoặc GPIO. Action thật sẽ do người dùng tự khai báo như on, off, toggle hoặc chế độ riêng.",
+      "device_kind": "smart_switch",
+      "control_type": "relay",
+      "capabilities": [
+        "power",
+        "timer"
+      ],
+      "learn_fields": [
+        {
+          "id": "id",
+          "label": "ID thiết bị",
+          "type": "text",
+          "required": false,
+          "placeholder": "Ví dụ: cong_tac_san"
+        },
+        {
+          "id": "name",
+          "label": "Tên thiết bị",
+          "type": "text",
+          "required": true,
+          "placeholder": "Ví dụ: Công tắc sân"
+        },
+        {
+          "id": "brand",
+          "label": "Thương hiệu",
+          "type": "text",
+          "required": false,
+          "placeholder": "Ví dụ: Generic Relay"
+        },
+        {
+          "id": "model",
+          "label": "Model",
+          "type": "text",
+          "required": false,
+          "placeholder": "Ví dụ: 1CH Relay"
+        },
+        {
+          "id": "room",
+          "label": "Phòng/Khu vực",
+          "type": "text",
+          "required": false,
+          "placeholder": "Ví dụ: san"
+        },
+        {
+          "id": "aliases",
+          "label": "Tên gọi thêm",
+          "type": "tags",
+          "required": false,
+          "placeholder": "Ví dụ: công tắc sân, cong tac san"
+        }
+      ],
+      "structure": {
+        "use_actions": true,
+        "use_presets": false,
+        "allow_custom_actions": true,
+        "allow_custom_presets": false
+      },
+      "default_state": {
+        "power": "off",
+        "availability": "online"
+      }
+    }
+  }
+}
