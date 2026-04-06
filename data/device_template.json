@@ -7,6 +7,7 @@
       "template_description": "Thiết bị chiếu sáng điều khiển theo từng lệnh rời như bật, tắt, đổi màu hoặc tăng giảm độ sáng.",
       "device_kind": "light",
       "control_type": "ir",
+      "control_type_label": "Kiểu tín hiệu",
       "capabilities": [
         "power",
         "timer"
@@ -72,6 +73,7 @@
       "template_description": "Thiết bị điều hòa có thể học lệnh rời hoặc preset hoàn chỉnh như chế độ mát 25 độ, quạt nhẹ, ngủ đêm.",
       "device_kind": "air_conditioner",
       "control_type": "ir",
+      "control_type_label": "Kiểu tín hiệu",
       "capabilities": [
         "power",
         "temperature",
@@ -139,10 +141,11 @@
     },
     "cong_tac": {
       "id": "cong_tac",
-      "template_name": "Công tắc thông minh",
+      "template_name": "Công tắc",
       "template_description": "Thiết bị đóng cắt bằng relay hoặc GPIO. Action thật sẽ do người dùng tự khai báo như on, off, toggle hoặc chế độ riêng.",
       "device_kind": "smart_switch",
-      "control_type": "relay",
+      "control_type": "rf",
+      "control_type_label": "Kiểu tín hiệu",
       "capabilities": [
         "power",
         "timer"

@@ -3,10 +3,10 @@ import re
 from ai.ai_intent import (
     build_chat_reply_with_ai,
     build_wake_reply_with_ai,
-    classify_user_request,
 )
-from ai.intent_parser import detect_control_request, normalize_text, parse_device_reference
+from ai.intent_parser import normalize_text
 from ai.music_intent import parse_music_intent
+from ai.semantic_resolver import resolve_device_command
 from api.device_api import control_device
 from config import EXIT_WORDS, WAKE_WORDS
 from core.device_state_store import set_state
@@ -68,19 +68,19 @@ def _extract_device_from_user_text(user_text: str, action: str) -> str:
 def build_response(user_text: str, intent: dict, device_name: str = "") -> str:
     """Tạo câu trả lời tự nhiên dựa trên text gốc và intent."""
     action = (intent or {}).get("action")
-    if action not in {"on", "off"}:
+    if action not in {"on", "off", "power.on", "power.off"}:
         return ""
 
-    action_text = "bật" if action == "on" else "tắt"
+    action_text = "bật" if action in {"on", "power.on"} else "tắt"
 
     if device_name:
-        return f"Dạ"
+        return f"Vâng, em đã {action_text} {device_name}."
 
-    device_from_text = _extract_device_from_user_text(user_text, action)
+    device_from_text = _extract_device_from_user_text(user_text, "on" if action in {"on", "power.on"} else "off")
     if not device_from_text:
-        return f"Dạ"
+        return ""
 
-    return f"Dạ"
+    return f"Vâng, em đã {action_text} {device_from_text}."
 
 
 def contains_phrase(text: str, phrases) -> bool:
@@ -114,27 +114,11 @@ def _strip_wake_words(text: str) -> str:
     return " ".join(output.split())
 
 
-def _contains_supported_device(text: str) -> bool:
-    device_info = parse_device_reference(text)
-    return bool(device_info.get("device_id") or device_info.get("matched_devices"))
-
-
 def _build_control_parse_failed_reply(text: str) -> str:
-    control_info = detect_control_request(text)
-    device_info = parse_device_reference(text)
-
-    if control_info.get("ambiguous_action"):
-        return SAFE_AMBIGUOUS_REPLY
-
-    if device_info.get("ambiguous"):
-        return "Em thấy nhiều thiết bị cùng khớp câu lệnh, anh/chị nói rõ hơn giúp em."
-
-    if control_info.get("is_control_request") and not device_info.get("device_id"):
-        if _contains_supported_device(text):
-            return "Em chưa xác định rõ thiết bị cần điều khiển."
-        return "Em chưa tìm thấy thiết bị phù hợp trong cấu hình."
-
-    return "Em chưa xác định được thiết bị cần điều khiển."
+    resolved = resolve_device_command(text)
+    if resolved.get("status") == "clarify":
+        return resolved.get("message") or SAFE_AMBIGUOUS_REPLY
+    return resolved.get("message") or "Em chưa xác định được thiết bị cần điều khiển."
 
 
 def _build_reply_text(result: dict) -> str:
@@ -161,11 +145,12 @@ def _build_reply_text(result: dict) -> str:
 
     if result.get("mode") == "command-local" and device and action:
         if result.get("ok"):
-            action_text = "bật" if action == "on" else "tắt"
+            action_text = "bật" if action in {"on", "power.on"} else "tắt" if action in {"off", "power.off"} else "thực thi"
             device_name = result.get("resolved_name") or device
-            return f"Vâng, em đã {action_text} {device_name}."
+            return f"Vâng, em đã {action_text} {device_name}." if action_text != "thực thi" else f"Vâng, em đã thực thi lệnh cho {device_name}."
         device_name = result.get("resolved_name") or device
-        return f"Em chưa {('bật' if action == 'on' else 'tắt')} được {device_name}. Lý do: {result.get('message') or 'không rõ lỗi'}"
+        action_text = "bật" if action in {"on", "power.on"} else "tắt" if action in {"off", "power.off"} else "thực thi"
+        return f"Em chưa {action_text} được {device_name}. Lý do: {result.get('message') or 'không rõ lỗi'}"
 
     if result.get("mode") == "music":
         return result.get("reply_text") or result.get("message") or "Em đang xử lý nhạc."
@@ -306,14 +291,10 @@ def process_text_command(text: str, source: str = "unknown", context: dict | Non
     if music_intent:
         return _handle_music_command(text=text, music_intent=music_intent, source=source)
 
-    request_result = classify_user_request(text, context=context)
-    request_type = (request_result.get("type") or "chat").strip().lower()
-
-    if request_type == "command":
-        intent = {
-            "device": request_result.get("device"),
-            "action": request_result.get("action"),
-        }
+    resolution = resolve_device_command(text)
+    resolution_status = str(resolution.get("status") or "").strip().lower()
+    if resolution_status == "resolved":
+        intent = dict(resolution.get("intent") or {})
         print(f"[CTRL] Thực thi control_device bằng local parser với intent={intent}")
         result = control_device(device=intent["device"], action=intent["action"])
         output = {
@@ -321,7 +302,7 @@ def process_text_command(text: str, source: str = "unknown", context: dict | Non
             "intent": intent,
             "should_exit": False,
             "mode": "command-local",
-            "ai": request_result,
+            "resolver": resolution,
             "role": "assistant",
             **result,
         }
@@ -339,8 +320,8 @@ def process_text_command(text: str, source: str = "unknown", context: dict | Non
         )
         return output
 
-    if request_type == "control_parse_failed":
-        message = _build_control_parse_failed_reply(text)
+    if resolution_status in {"clarify", "unresolved"}:
+        message = resolution.get("message") or _build_control_parse_failed_reply(text)
         output = {
             "ok": False,
             "message": message,
@@ -349,7 +330,7 @@ def process_text_command(text: str, source: str = "unknown", context: dict | Non
             "should_exit": False,
             "mode": "control-parse-failed",
             "reply_text": message,
-            "ai": request_result,
+            "resolver": resolution,
             "role": "assistant",
         }
         speak_text_async(output["reply_text"])
@@ -357,7 +338,7 @@ def process_text_command(text: str, source: str = "unknown", context: dict | Non
         log_event(source=source, level="warning", message=output["reply_text"], payload=output)
         return output
 
-    chat_reply = request_result.get("reply") or build_chat_reply_with_ai(text, context=context)
+    chat_reply = build_chat_reply_with_ai(text, context=context)
     output = {
         "ok": True,
         "message": "Xu ly o che do hoi dap",
@@ -366,7 +347,7 @@ def process_text_command(text: str, source: str = "unknown", context: dict | Non
         "should_exit": False,
         "mode": "chat",
         "reply_text": chat_reply,
-        "ai": request_result,
+        "resolver": resolution,
         "role": "assistant",
     }
     speak_text_async(output["reply_text"])

@@ -3,8 +3,16 @@
 
 <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport"
+        content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
     <title>Smart Home AI Chat</title>
+    <meta name="theme-color" content="#BFB8DA" />
+    <meta name="description"
+        content="Điều khiển hệ thống smart home qua AI chat và giọng nói trên giao diện web cài được như ứng dụng." />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/static/pwa/icon-192.png" />
+    <link rel="icon" type="image/svg+xml" href="/static/pwa/icon.svg" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/static/pwa/apple-touch-icon.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -103,7 +111,12 @@
                         <div class="settings-anchor">
                             <button id="settings-btn" type="button" class="settings-btn" aria-haspopup="menu"
                                 aria-expanded="false" aria-label="Mở menu cài đặt">
-                                <span class="settings-gear">⚙</span>
+                                <span class="settings-gear" aria-hidden="true">
+                                    <svg viewBox="0 0 24 24" class="settings-gear-icon" focusable="false">
+                                        <path fill="currentColor"
+                                            d="M19.14 12.94c.04-.31.06-.62.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.25 7.25 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.49-.42h-3.84a.5.5 0 0 0-.49.42l-.36 2.54c-.58.22-1.12.53-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.7 8.84a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.62-.06.94s.02.63.06.94L2.82 14.52a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.5.41 1.05.72 1.63.94l.36 2.54a.5.5 0 0 0 .49.42h3.84a.5.5 0 0 0 .49-.42l.36-2.54c.58-.22 1.12-.53 1.63-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7Z" />
+                                    </svg>
+                                </span>
                             </button>
 
                             <div id="settings-menu" class="settings-menu" role="menu" aria-hidden="true">
@@ -176,9 +189,6 @@
                     ×
                 </button>
             </div>
-            <p class="password-modal-desc">
-                Đổi mật khẩu
-            </p>
             <form id="password-form" class="password-form" autocomplete="on">
                 <label class="auth-field" for="current-password">
                     <span>Mật khẩu cũ</span>
@@ -211,7 +221,7 @@
                 </button>
             </div>
             <p class="password-modal-desc">
-                Chọn loại thiết bị và nhập tên để thêm thiết bị rỗng vào hệ thống trước khi học lệnh.
+                Vui lòng thêm thiết bị trước khi học lệnh.
             </p>
             <form id="add-device-form" class="password-form ir-learn-modal-form" autocomplete="off">
                 <label class="ir-learn-field" for="add-device-template-select">
@@ -240,7 +250,7 @@
             aria-labelledby="ir-learn-modal-title">
             <div class="password-modal-head">
                 <div>
-                    <p class="eyebrow">Broadlink IR</p>
+                    <p class="eyebrow">Broadlink Signal</p>
                     <h2 id="ir-learn-modal-title">Học lệnh</h2>
                 </div>
                 <button id="ir-learn-close-btn" type="button" class="password-close-btn" aria-label="Đóng">
@@ -259,11 +269,27 @@
                     <input id="ir-device-name-input" type="text" placeholder="Tên thiết bị sẽ tự điền" maxlength="120"
                         required readonly />
                 </label>
+                <label class="ir-learn-field" for="ir-signal-type-select">
+                    <span class="device-top-label">Kiểu tín hiệu</span>
+                    <select id="ir-signal-type-select" name="signal_type" required>
+                        <option value="ir">IR</option>
+                        <option value="rf">RF</option>
+                    </select>
+                </label>
+                <label id="ir-rf-frequency-field" class="ir-learn-field is-hidden" for="ir-rf-frequency-select">
+                    <span class="device-top-label">Tần số RF</span>
+                    <select id="ir-rf-frequency-select" name="rf_frequency">
+                        <option value="">Chọn tần số RF</option>
+                        <option value="433">433 MHz</option>
+                        <option value="315">315 MHz</option>
+                    </select>
+                </label>
                 <label class="ir-learn-field" for="ir-filename-input">
-                    <span class="device-top-label">Tên file .bin</span>
+                    <span id="ir-filename-label" class="device-top-label">Tên file .bin</span>
                     <input id="ir-filename-input" type="text" placeholder="Ví dụ: den_san_on.bin" maxlength="120"
                         required />
-                    <small class="ir-learn-hint">Ví dụ: `den_san_on.bin`, `den_san_off.bin`</small>
+                    <small id="ir-filename-hint" class="ir-learn-hint">Ví dụ: `den_san_on.bin`,
+                        `den_san_off.bin`</small>
                 </label>
                 <label class="ir-learn-field" for="ir-semantic-kind-select">
                     <span class="device-top-label">Ý nghĩa lệnh</span>

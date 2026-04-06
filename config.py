@@ -32,6 +32,7 @@ def _load_dotenv_if_present():
 _load_dotenv_if_present()
 
 IR_PACKET_DIR = os.path.join(BASE_DIR, "data", "ir_packets")
+RF_PACKET_DIR = os.path.join(BASE_DIR, "data", "rf_packets")
 DEVICE_MAP_FILE = os.path.join(BASE_DIR, "data", "device_map.json")
 DEVICE_TEMPLATE_FILE = os.path.join(BASE_DIR, "data", "device_template.json")
 ENABLE_DEVICE_MAP_BACKUP = os.getenv("ENABLE_DEVICE_MAP_BACKUP", "0") == "1"
@@ -77,6 +78,7 @@ WEATHER_API_TIMEOUT_SECONDS = float(os.getenv("WEATHER_API_TIMEOUT_SECONDS", "6"
 LISTEN_TIMEOUT = int(os.getenv("LISTEN_TIMEOUT", "8"))
 PHRASE_TIME_LIMIT = int(os.getenv("PHRASE_TIME_LIMIT", "6"))
 AMBIENT_NOISE_DURATION = float(os.getenv("AMBIENT_NOISE_DURATION", "1"))
+AMBIENT_NOISE_REFRESH_SECONDS = float(os.getenv("AMBIENT_NOISE_REFRESH_SECONDS", "45"))
 
 # Dat MIC_DEVICE_INDEX=-1 de auto chon default microphone
 MIC_DEVICE_INDEX = int(os.getenv("MIC_DEVICE_INDEX", "-1"))

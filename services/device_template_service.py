@@ -79,6 +79,7 @@ def _normalize_template(template_key: str, raw_template: Any) -> TemplatePayload
         "template_description": str(raw_template.get("template_description") or "").strip(),
         "device_kind": device_kind,
         "control_type": str(raw_template.get("control_type") or "unknown").strip().lower() or "unknown",
+        "control_type_label": str(raw_template.get("control_type_label") or "Kiểu tín hiệu").strip() or "Kiểu tín hiệu",
         "capabilities": _normalize_capabilities(raw_template.get("capabilities"), device_kind),
         "learn_fields": learn_fields,
         "structure": {
@@ -135,6 +136,7 @@ def list_device_templates(template_file: str = DEVICE_TEMPLATE_FILE) -> Tuple[Li
             "template_description": template["template_description"],
             "device_kind": template["device_kind"],
             "control_type": template["control_type"],
+            "control_type_label": template.get("control_type_label", "Kiểu tín hiệu"),
             "capabilities": deepcopy(template["capabilities"]),
             "structure": deepcopy(template["structure"]),
         })

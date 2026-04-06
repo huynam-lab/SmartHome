@@ -1,4 +1,4 @@
-from controller.device_controller import execute_intent, load_device_map, resolve_packet_debug_info
+from controller.device_controller import execute_command, execute_intent, load_device_map, resolve_packet_debug_info
 from controller.device_registry import get_registry
 from core.device_state_store import get_state, set_command_status, set_state, sync_from_device_map
 
@@ -15,7 +15,7 @@ ACTION_LABELS = {
 TYPE_LABELS = {
     "light": "Đèn",
     "air_conditioner": "Điều hòa",
-    "smart_switch": "Công tắc thông minh",
+    "smart_switch": "Công tắc",
     "ir": "Thiết bị hồng ngoại",
     "relay": "Relay / GPIO",
 }
@@ -39,6 +39,7 @@ def _build_device_response(device_id: str, config: dict):
         "type": device_kind,
         "device_kind": device_kind,
         "control_type": control_type,
+        "rf_frequency": config.get("rf_frequency"),
         "capabilities": list(config.get("capabilities") or []),
         "type_label": TYPE_LABELS.get(device_kind, device_kind.replace("_", " ").title()),
         "brand": config.get("brand", "unknown"),
@@ -114,7 +115,7 @@ def control_device(device: str, action: str):
             "message": f"Action khong hop le cho {normalized_device}: {normalized_action}",
         }
 
-    execution_result = execute_intent({"device": device, "action": normalized_action})
+    execution_result = execute_command({"device": device, "action": normalized_action})
     if execution_result.get("success"):
         canonical_device = normalized_device
         if device_config.get("control_type") == "ir":

@@ -14,6 +14,7 @@ from config import (
     LISTEN_TIMEOUT,
     PHRASE_TIME_LIMIT,
     AMBIENT_NOISE_DURATION,
+    AMBIENT_NOISE_REFRESH_SECONDS,
     DEBUG_VOICE,
     SUPPRESS_NATIVE_AUDIO_LOGS,
     TTS_ECHO_IGNORE_WINDOW_SECONDS,
@@ -30,6 +31,7 @@ _recognizer.non_speaking_duration = 0.4
 _AUDIO_BACKEND_OK = None
 _LAST_BACKEND_ERROR_AT = 0.0
 _LAST_BACKEND_ERROR_MESSAGE = ""
+_LAST_AMBIENT_CALIBRATED_AT = 0.0
 _STDERR_REDIRECT_LOCK = threading.Lock()
 
 
@@ -147,10 +149,11 @@ def is_echo_from_tts(user_text: str, last_tts_text: str, last_tts_time: float) -
 
     return substring_match or high_similarity
 
+
 def recognize_once():
+    global _LAST_AMBIENT_CALIBRATED_AT
+
     if is_assistant_speaking():
-        if DEBUG_VOICE:
-            print("[VOICE] Assistant dang noi, tam bo qua microphone input")
         time.sleep(max(0.01, VOICE_BLOCK_SLEEP_SECONDS))
         return ""
 
@@ -171,20 +174,43 @@ def recognize_once():
                     else:
                         print(f"[MIC] Dang nghe tu micro index={mic_index} ...")
 
-                _recognizer.adjust_for_ambient_noise(source, duration=AMBIENT_NOISE_DURATION)
-                log_event(source="stt", level="info", message="Đã calibrate ambient noise", payload={"duration": AMBIENT_NOISE_DURATION})
+                now = time.time()
+                should_refresh_ambient = (
+                    _LAST_AMBIENT_CALIBRATED_AT <= 0
+                    or (now - _LAST_AMBIENT_CALIBRATED_AT) >= max(1.0, AMBIENT_NOISE_REFRESH_SECONDS)
+                )
+                if should_refresh_ambient:
+                    _recognizer.adjust_for_ambient_noise(source, duration=AMBIENT_NOISE_DURATION)
+                    _LAST_AMBIENT_CALIBRATED_AT = time.time()
+                    log_event(
+                        source="stt",
+                        level="info",
+                        message="Đã calibrate ambient noise",
+                        payload={
+                            "duration": AMBIENT_NOISE_DURATION,
+                            "refresh_seconds": AMBIENT_NOISE_REFRESH_SECONDS,
+                        },
+                    )
+                else:
+                    log_event(
+                        source="stt",
+                        level="info",
+                        message="Bo qua calibrate ambient noise vi con hieu luc",
+                        payload={
+                            "seconds_since_last_calibration": round(now - _LAST_AMBIENT_CALIBRATED_AT, 3),
+                            "refresh_seconds": AMBIENT_NOISE_REFRESH_SECONDS,
+                        },
+                    )
 
                 try:
                     if is_assistant_speaking():
-                        if DEBUG_VOICE:
-                            print("[VOICE] Assistant dang noi/cooldown, bo qua truoc listen")
                         time.sleep(max(0.01, VOICE_BLOCK_SLEEP_SECONDS))
                         return ""
 
                     audio = _recognizer.listen(
                         source,
                         timeout=LISTEN_TIMEOUT,
-                        phrase_time_limit=PHRASE_TIME_LIMIT
+                        phrase_time_limit=PHRASE_TIME_LIMIT,
                     )
                     log_event(source="stt", level="info", message="Đã thu được audio từ microphone", payload={"timeout": LISTEN_TIMEOUT, "phrase_time_limit": PHRASE_TIME_LIMIT})
                 except sr.WaitTimeoutError:
@@ -193,8 +219,6 @@ def recognize_once():
 
         try:
             if is_assistant_speaking():
-                if DEBUG_VOICE:
-                    print("[VOICE] Assistant dang noi/cooldown, bo qua truoc recognize")
                 time.sleep(max(0.01, VOICE_BLOCK_SLEEP_SECONDS))
                 return ""
 
@@ -203,10 +227,7 @@ def recognize_once():
             log_event(source="stt", level="info", message="STT nhận diện thành công", payload={"text": text})
 
             if is_assistant_speaking():
-                if DEBUG_VOICE:
-                    print("[VOICE] Assistant dang noi, tam bo qua ket qua STT")
                 return ""
-
             last_tts_text, last_tts_time = get_last_tts_state()
             if is_echo_from_tts(text, last_tts_text, last_tts_time):
                 print("[VOICE] Bo qua vi nghi la am thanh TTS cua chinh minh")

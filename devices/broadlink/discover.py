@@ -145,3 +145,21 @@ def get_first_device(force_refresh: bool = False):
         _CACHED_AT = 0.0
         log_event(source="broadlink-discover", level="error", message="Broadlink auth lỗi", payload={"error": repr(exc)})
         return None
+
+
+def prewarm_device_cache() -> None:
+    try:
+        device = get_first_device(force_refresh=False)
+        log_event(
+            source="broadlink-discover",
+            level="info" if device is not None else "warning",
+            message="Prewarm Broadlink cache hoàn tất",
+            payload={"has_device": device is not None},
+        )
+    except Exception as exc:
+        log_event(
+            source="broadlink-discover",
+            level="warning",
+            message="Prewarm Broadlink cache thất bại",
+            payload={"error": repr(exc)},
+        )

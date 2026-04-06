@@ -25,25 +25,25 @@ def get_packet_audit_report():
     return get_registry().build_packet_audit_report()
 
 
-def execute_intent(intent: dict):
+def execute_command(command: dict):
     registry = get_registry()
     registry.reload()
 
-    if not intent or not isinstance(intent, dict):
+    if not command or not isinstance(command, dict):
         result = {
             "success": False,
-            "message": "Intent rỗng hoặc không hợp lệ",
+            "message": "Lenh dieu khien rong hoac khong hop le",
             "device": None,
             "action": None,
             "packet_file": None,
             "packet_path": None,
-            "details": {"intent": intent, "errors": ["invalid_intent"]},
+            "details": {"command": command, "errors": ["invalid_command"]},
         }
         log_event(source="device-control", level="error", message=result["message"], payload=result)
         return result
 
-    requested_device = intent.get("device")
-    requested_action = str(intent.get("action") or "").strip().lower()
+    requested_device = command.get("device")
+    requested_action = str(command.get("action") or "").strip().lower()
     validation = registry.validate_device_action(requested_device, requested_action)
     packet_info = validation.get("packet_info") or {}
     normalized_device = validation.get("normalized_device")
@@ -52,7 +52,7 @@ def execute_intent(intent: dict):
     log_event(
         source="device-control",
         level="info",
-        message="Nhận intent điều khiển thiết bị",
+        message="Nhan lenh dieu khien chuan hoa",
         payload={
             "requested_device": requested_device,
             "normalized_device": normalized_device,
@@ -68,7 +68,7 @@ def execute_intent(intent: dict):
     if not validation.get("valid") or not device:
         result = {
             "success": False,
-            "message": "; ".join(validation.get("errors") or ["Intent không hợp lệ"]),
+            "message": "; ".join(validation.get("errors") or ["Lenh dieu khien khong hop le"]),
             "device": normalized_device,
             "action": requested_action,
             "packet_file": packet_info.get("packet_file"),
@@ -87,7 +87,7 @@ def execute_intent(intent: dict):
     if not packet_info.get("packet_exists"):
         result = {
             "success": False,
-            "message": "Không tìm thấy file .bin được khai báo trong cấu hình thiết bị",
+            "message": "Không tìm thấy file packet được khai báo trong cấu hình thiết bị",
             "device": normalized_device,
             "action": requested_action,
             "packet_file": packet_info.get("packet_file"),
@@ -144,6 +144,10 @@ def execute_intent(intent: dict):
     return result
 
 
+def execute_intent(intent: dict):
+    return execute_command(intent)
+
+
 __all__ = [
     "build_alias_index",
     "normalize_device_id",
@@ -152,5 +156,6 @@ __all__ = [
     "resolve_packet_debug_info",
     "list_available_packets",
     "get_packet_audit_report",
+    "execute_command",
     "execute_intent",
 ]

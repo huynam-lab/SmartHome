@@ -28,7 +28,8 @@ class MusicPlayer:
         command_timeout: float = 4.0,
         startup_timeout: float = 8.0,
         yt_timeout: float = 15.0,
-        autoplay_count: int = 5,
+        autoplay_count: int = 1,
+        playlist_cache_ttl: float = 300.0,
     ) -> None:
         self.socket_path = socket_path
         self.default_volume = self._clamp_volume(default_volume)
@@ -36,12 +37,14 @@ class MusicPlayer:
         self.startup_timeout = max(1.0, float(startup_timeout))
         self.yt_timeout = max(3.0, float(yt_timeout))
         self.autoplay_count = max(1, int(autoplay_count))
+        self.playlist_cache_ttl = max(10.0, float(playlist_cache_ttl))
         self._lock = threading.Lock()
         self._process: Optional[subprocess.Popen] = None
         self._current_query = ""
         self._current_title = ""
         self._current_source_url = ""
         self._playlist_items: list[Dict[str, str]] = []
+        self._playlist_cache: Dict[str, Dict[str, Any]] = {}
         self._volume = self.default_volume
         self._tts_duck_snapshot: Optional[Dict[str, Any]] = None
 
@@ -55,8 +58,6 @@ class MusicPlayer:
             if not resolved.get("ok"):
                 return resolved
 
-            self._stop_unlocked(silent_if_missing=True)
-
             playlist_items = list(resolved.get("items") or [])
             first_audio_url = str((playlist_items[0] or {}).get("audio_url") or "")
             extra_audio_urls = [
@@ -65,9 +66,14 @@ class MusicPlayer:
                 if str(item.get("audio_url") or "").strip()
             ]
 
-            start_result = self._start_player_unlocked(first_audio_url, extra_audio_urls=extra_audio_urls)
-            if not start_result.get("ok"):
-                return start_result
+            if self._has_active_player_unlocked():
+                play_result = self._replace_playlist_unlocked(first_audio_url, extra_audio_urls=extra_audio_urls)
+                if not play_result.get("ok"):
+                    return play_result
+            else:
+                start_result = self._start_player_unlocked(first_audio_url, extra_audio_urls=extra_audio_urls)
+                if not start_result.get("ok"):
+                    return start_result
 
             self._current_query = clean_query
             self._current_title = str((playlist_items[0] or {}).get("title") or clean_query).strip()
@@ -234,6 +240,15 @@ class MusicPlayer:
             )
 
         search_query = " ".join(str(query or "").split()).strip() or "nhạc hot"
+        cache_key = search_query.lower()
+        cached = self._playlist_cache.get(cache_key)
+        now = time.time()
+        if cached and now - float(cached.get("saved_at", 0.0)) <= self.playlist_cache_ttl:
+            items = list(cached.get("items") or [])
+            if items:
+                self._log("info", "playlist cache hit", {"query": search_query, "count": len(items)})
+                return {"ok": True, "items": items}
+
         ydl_options = {
             "quiet": True,
             "no_warnings": True,
@@ -283,6 +298,10 @@ class MusicPlayer:
             "resolved audio playlist",
             {"query": search_query, "count": len(playlist_items), "first_title": playlist_items[0]["title"]},
         )
+        self._playlist_cache[cache_key] = {
+            "saved_at": now,
+            "items": list(playlist_items),
+        }
         return {
             "ok": True,
             "items": playlist_items,
@@ -415,11 +434,29 @@ class MusicPlayer:
                 ping = self._send_command_unlocked({"command": ["get_property", "pause"]})
                 if ping.get("ok"):
                     return {"ok": True}
-            time.sleep(0.1)
+            time.sleep(0.05)
 
         self._stop_process_only_unlocked()
         self._cleanup_socket_unlocked(force=True)
         return self._error("Hết thời gian chờ mpv sẵn sàng.")
+
+    def _replace_playlist_unlocked(self, audio_url: str, extra_audio_urls: Optional[list[str]] = None) -> Dict[str, Any]:
+        if not audio_url:
+            return self._error("Không có nguồn audio để phát.")
+
+        result = self._send_command_unlocked({"command": ["loadfile", audio_url, "replace"]})
+        if not result.get("ok"):
+            return self._error("Không đổi được bài hát trên player nhạc.")
+
+        for extra_url in list(extra_audio_urls or []):
+            if not extra_url:
+                continue
+            append_result = self._send_command_unlocked({"command": ["loadfile", extra_url, "append-play"]})
+            if not append_result.get("ok"):
+                self._log("warning", "failed to append playlist item", {"audio_url": extra_url})
+
+        self._send_command_unlocked({"command": ["set_property", "pause", False]})
+        return {"ok": True}
 
     def _stop_unlocked(self, silent_if_missing: bool) -> Dict[str, Any]:
         had_player = self._has_active_player_unlocked()

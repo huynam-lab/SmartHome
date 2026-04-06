@@ -1,25 +1,34 @@
 :root {
-    --bg-main: #07111f;
-    --bg-gradient: radial-gradient(circle at top left, rgba(59, 130, 246, 0.16), transparent 32%),
-        radial-gradient(circle at right bottom, rgba(168, 85, 247, 0.18), transparent 28%),
-        linear-gradient(180deg, #07111f 0%, #0b1729 48%, #0f1d34 100%);
-    --glass-bg: rgba(255, 255, 255, 0.04);
-    --glass-strong: rgba(255, 255, 255, 0.06);
-    --glass-border: rgba(255, 255, 255, 0.08);
-    --line-soft: rgba(148, 163, 184, 0.14);
-    --text-main: #e2e8f0;
-    --text-soft: #94a3b8;
-    --text-muted: #7c8ea8;
-    --primary: #5ea0ff;
-    --primary-2: #8b5cf6;
-    --assistant-bubble: rgba(255, 255, 255, 0.06);
-    --user-bubble: linear-gradient(135deg, #5b8cff, #8b5cf6);
-    --system-bubble: rgba(255, 255, 255, 0.05);
-    --success: #22c55e;
-    --danger: #fb7185;
-    --warning: #fbbf24;
-    --shadow-soft: 0 24px 60px rgba(2, 8, 23, 0.35);
-    --shadow-hover: 0 28px 80px rgba(15, 23, 42, 0.45);
+    --bg-main: #f3eef9;
+    --bg-gradient: radial-gradient(circle at top left, rgba(127, 172, 214, 0.26), transparent 34%),
+        radial-gradient(circle at right bottom, rgba(165, 103, 177, 0.22), transparent 30%),
+        linear-gradient(180deg, #eef3fb 0%, #f3eef9 48%, #ede6f4 100%);
+    --glass-bg: rgba(255, 255, 255, 0.56);
+    --glass-strong: rgba(255, 255, 255, 0.78);
+    --glass-border: rgba(51, 83, 158, 0.12);
+    --line-soft: rgba(51, 83, 158, 0.1);
+    --text-main: #24365f;
+    --text-soft: #566d9f;
+    --text-muted: #7c7fa8;
+    --primary: #33539e;
+    --primary-2: #a567b1;
+    --accent-blue: #7facd6;
+    --accent-lavender: #bfb8da;
+    --accent-pink: #e8b7d4;
+    --assistant-bubble: linear-gradient(135deg, rgba(127, 172, 214, 0.26), rgba(191, 184, 218, 0.34));
+    --user-bubble: linear-gradient(135deg, #33539e, #a567b1);
+    --system-bubble: rgba(191, 184, 218, 0.4);
+    --surface-soft: rgba(255, 255, 255, 0.46);
+    --surface-muted: rgba(191, 184, 218, 0.2);
+    --surface-panel: linear-gradient(180deg, rgba(255, 255, 255, 0.74), rgba(246, 241, 251, 0.92));
+    --surface-panel-strong: linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(239, 234, 248, 0.98));
+    --surface-overlay: rgba(239, 234, 248, 0.86);
+    --input-bg: rgba(255, 255, 255, 0.82);
+    --success: #7facd6;
+    --danger: #e8b7d4;
+    --warning: #a567b1;
+    --shadow-soft: 0 24px 60px rgba(51, 83, 158, 0.16);
+    --shadow-hover: 0 28px 80px rgba(51, 83, 158, 0.2);
     --radius-xl: 30px;
     --radius-lg: 24px;
     --radius-md: 20px;
@@ -56,8 +65,26 @@ small {
 }
 
 button,
-textarea {
+input,
+textarea,
+select {
     font: inherit;
+}
+
+a,
+button,
+[role="button"],
+input[type="button"],
+input[type="submit"],
+input[type="reset"] {
+    touch-action: manipulation;
+}
+
+input,
+textarea,
+select {
+    font-size: 16px;
+    line-height: 1.4;
 }
 
 .bg-orb,
@@ -69,7 +96,7 @@ textarea {
 }
 
 .bg-orb {
-    filter: blur(14px);
+    filter: blur(18px);
 }
 
 .orb-1 {
@@ -77,7 +104,7 @@ textarea {
     width: 420px;
     height: 420px;
     border-radius: 50%;
-    background: radial-gradient(circle, rgba(59, 130, 246, 0.32), transparent 70%);
+    background: radial-gradient(circle, rgba(127, 172, 214, 0.3), transparent 70%);
 }
 
 .orb-2 {
@@ -85,14 +112,14 @@ textarea {
     width: 460px;
     height: 460px;
     border-radius: 50%;
-    background: radial-gradient(circle, rgba(139, 92, 246, 0.28), transparent 70%);
+    background: radial-gradient(circle, rgba(165, 103, 177, 0.24), transparent 70%);
 }
 
 .bg-grid {
-    background-image: linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+    background-image: linear-gradient(rgba(51, 83, 158, 0.05) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(51, 83, 158, 0.05) 1px, transparent 1px);
     background-size: 28px 28px;
-    opacity: 0.24;
+    opacity: 0.45;
 }
 
 .app-shell {
@@ -103,6 +130,27 @@ textarea {
     margin: 0 auto;
     padding: 16px 12px 24px;
     overflow-x: hidden;
+}
+
+.offline-shell {
+    position: relative;
+    z-index: 1;
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+}
+
+.offline-card {
+    width: min(100%, 560px);
+    padding: 32px;
+    border-radius: var(--radius-xl);
+}
+
+.offline-copy {
+    margin: 16px 0 24px;
+    color: var(--text-soft);
+    line-height: 1.7;
 }
 
 .glass-card {
@@ -130,7 +178,7 @@ textarea {
     align-items: center;
     padding: 8px 14px;
     border-radius: 999px;
-    background: rgba(94, 160, 255, 0.12);
+    background: rgba(51, 83, 158, 0.08);
     color: var(--primary);
     font-size: 0.78rem;
     font-weight: 800;
@@ -184,20 +232,20 @@ h3 {
 .chat-status-banner.is-live .chat-status-dot,
 .device-status-banner.is-on .device-status-dot {
     background: var(--success);
-    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.56);
+    box-shadow: 0 0 0 0 rgba(127, 172, 214, 0.42);
     animation: pulse-online 1.8s infinite;
 }
 
 .chat-status-banner.is-processing .chat-status-dot {
     background: var(--warning);
-    box-shadow: 0 0 0 0 rgba(251, 191, 36, 0.42);
+    box-shadow: 0 0 0 0 rgba(165, 103, 177, 0.34);
     animation: pulse-online 1.3s infinite;
 }
 
 .chat-status-banner.is-error .chat-status-dot,
 .device-status-banner.is-off .device-status-dot {
     background: var(--danger);
-    box-shadow: 0 0 20px rgba(251, 113, 133, 0.45);
+    box-shadow: 0 0 20px rgba(232, 183, 212, 0.45);
 }
 
 .chat-status-dot,
@@ -207,17 +255,17 @@ h3 {
 
 @keyframes pulse-online {
     0% {
-        box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4);
+        box-shadow: 0 0 0 0 rgba(127, 172, 214, 0.36);
         transform: scale(1);
     }
 
     70% {
-        box-shadow: 0 0 0 10px rgba(34, 197, 94, 0);
+        box-shadow: 0 0 0 10px rgba(127, 172, 214, 0);
         transform: scale(1.08);
     }
 
     100% {
-        box-shadow: 0 0 0 0 rgba(34, 197, 94, 0);
+        box-shadow: 0 0 0 0 rgba(127, 172, 214, 0);
         transform: scale(1);
     }
 }
@@ -242,11 +290,11 @@ h3 {
     min-height: calc(100vh - 220px);
     padding: 20px 20px calc(var(--composer-height) + 30px);
     overflow: hidden;
-    background: radial-gradient(circle at 20% 20%, rgba(80, 120, 255, 0.15), transparent 60%),
-        radial-gradient(circle at 80% 80%, rgba(120, 80, 255, 0.12), transparent 60%),
-        linear-gradient(180deg, #0b1220, #0f172a);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    background: radial-gradient(circle at 20% 20%, rgba(127, 172, 214, 0.18), transparent 58%),
+        radial-gradient(circle at 80% 80%, rgba(232, 183, 212, 0.2), transparent 60%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(241, 236, 250, 0.96));
+    border: 1px solid rgba(51, 83, 158, 0.12);
+    box-shadow: 0 14px 32px rgba(51, 83, 158, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.55);
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
 }
@@ -256,7 +304,7 @@ h3 {
     position: absolute;
     width: 300px;
     height: 300px;
-    background: radial-gradient(circle, rgba(100, 150, 255, 0.2), transparent 70%);
+    background: radial-gradient(circle, rgba(127, 172, 214, 0.3), transparent 70%);
     top: -50px;
     left: -50px;
     filter: blur(60px);
@@ -302,25 +350,35 @@ h3 {
 }
 
 .settings-btn {
-    width: 60px;
-    height: 60px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 20px;
-    background: rgba(148, 163, 184, 0.12);
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border: none;
+    border-radius: 12px;
+    background: transparent;
     color: var(--text-main);
+    box-shadow: none;
     cursor: pointer;
     transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
 }
 
 .settings-btn:hover {
     transform: translateY(-1px);
-    background: rgba(148, 163, 184, 0.18);
-    box-shadow: 0 12px 24px rgba(2, 8, 23, 0.22);
+    background: rgba(127, 172, 214, 0.08);
+    box-shadow: none;
 }
 
 .settings-gear {
     display: inline-flex;
-    font-size: 1.45rem;
+    align-items: center;
+    justify-content: center;
+    line-height: 0;
+}
+
+.settings-gear-icon {
+    width: 20px;
+    height: 20px;
+    display: block;
 }
 
 .settings-menu {
@@ -333,12 +391,11 @@ h3 {
     width: min(300px, calc(100vw - 24px));
     padding: 14px;
     border-radius: 24px;
-    background:
-        linear-gradient(180deg, rgba(10, 18, 34, 0.98), rgba(7, 14, 26, 0.97));
-    border: 1px solid rgba(191, 219, 254, 0.14);
+    background: var(--surface-panel-strong);
+    border: 1px solid rgba(51, 83, 158, 0.12);
     box-shadow:
-        0 24px 60px rgba(2, 8, 23, 0.58),
-        inset 0 1px 0 rgba(255, 255, 255, 0.05);
+        0 24px 60px rgba(51, 83, 158, 0.18),
+        inset 0 1px 0 rgba(255, 255, 255, 0.65);
     backdrop-filter: blur(18px);
     -webkit-backdrop-filter: blur(18px);
     opacity: 0;
@@ -369,9 +426,9 @@ h3 {
     right: 18px;
     width: 16px;
     height: 16px;
-    background: rgba(10, 18, 34, 0.98);
-    border-top: 1px solid rgba(191, 219, 254, 0.14);
-    border-left: 1px solid rgba(191, 219, 254, 0.14);
+    background: rgba(250, 247, 252, 0.96);
+    border-top: 1px solid rgba(51, 83, 158, 0.12);
+    border-left: 1px solid rgba(51, 83, 158, 0.12);
     transform: rotate(45deg);
 }
 
@@ -394,12 +451,19 @@ h3 {
 }
 
 .settings-menu-item:hover {
-    background: rgba(255, 255, 255, 0.06);
+    background: rgba(127, 172, 214, 0.14);
     transform: translateX(2px);
 }
 
 .settings-menu-item.danger {
-    color: #ffd4dc;
+    color: #b56f9a;
+}
+
+.device-card-menu .settings-menu-item {
+    min-height: 46px;
+    padding: 12px 14px;
+    border-radius: 14px;
+    font-size: 0.95rem;
 }
 
 .chat-status-banner {
@@ -409,9 +473,9 @@ h3 {
     margin-top: 16px;
     padding: 12px 14px;
     border-radius: 18px;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    background: rgba(255, 255, 255, 0.6);
+    border: 1px solid rgba(51, 83, 158, 0.1);
+    box-shadow: 0 10px 30px rgba(51, 83, 158, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.55);
     color: var(--text-soft);
 }
 
@@ -427,9 +491,9 @@ h3 {
     padding-right: 8px;
     scroll-behavior: smooth;
     border-radius: 20px;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    background: rgba(255, 255, 255, 0.54);
+    border: 1px solid rgba(51, 83, 158, 0.1);
+    box-shadow: 0 10px 30px rgba(51, 83, 158, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.55);
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
 }
@@ -440,7 +504,7 @@ h3 {
 
 .chat-messages::-webkit-scrollbar-thumb {
     border-radius: 999px;
-    background: rgba(148, 163, 184, 0.28);
+    background: rgba(127, 172, 214, 0.45);
 }
 
 .chat-empty {
@@ -449,8 +513,8 @@ h3 {
     min-height: 220px;
     padding: 22px;
     border-radius: 24px;
-    border: 1px dashed rgba(148, 163, 184, 0.2);
-    background: rgba(255, 255, 255, 0.04);
+    border: 1px dashed rgba(51, 83, 158, 0.18);
+    background: rgba(255, 255, 255, 0.5);
     text-align: center;
 }
 
@@ -476,7 +540,7 @@ h3 {
     width: 34px;
     height: 34px;
     border-radius: 50%;
-    background: rgba(255, 255, 255, 0.1);
+    background: rgba(127, 172, 214, 0.22);
     color: var(--text-main);
     font-size: 0.92rem;
     flex-shrink: 0;
@@ -496,37 +560,36 @@ h3 {
 .chat-bubble {
     padding: 14px 16px;
     border-radius: 22px;
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 8px 18px rgba(51, 83, 158, 0.12);
     line-height: 1.55;
     white-space: pre-wrap;
     word-break: break-word;
-    color: #e2e8f0;
+    color: var(--text-main);
 }
 
 .chat-row.role-user .chat-bubble {
     border-bottom-right-radius: 8px;
     color: #ffffff;
     background: var(--user-bubble);
-    box-shadow: 0 8px 20px rgba(91, 140, 255, 0.4);
+    box-shadow: 0 10px 24px rgba(51, 83, 158, 0.26);
 }
 
 .chat-row.role-assistant .chat-bubble {
     border-bottom-left-radius: 8px;
     background: var(--assistant-bubble);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(51, 83, 158, 0.08);
 }
 
 .chat-row.role-system .chat-bubble {
     border-radius: 18px;
     background: var(--system-bubble);
-    color: #e2e8f0;
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: var(--text-main);
+    border: 1px solid rgba(51, 83, 158, 0.08);
 }
 
 .chat-row.is-error .chat-bubble {
-    background: linear-gradient(180deg, rgba(127, 29, 29, 0.82), rgba(127, 29, 29, 0.66));
-    border: 1px solid rgba(251, 113, 133, 0.3);
+    background: linear-gradient(180deg, rgba(232, 183, 212, 0.4), rgba(165, 103, 177, 0.26));
+    border: 1px solid rgba(165, 103, 177, 0.22);
 }
 
 .chat-meta {
@@ -548,9 +611,9 @@ h3 {
     gap: 16px;
     padding: 16px 18px;
     border-radius: 24px;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    background: rgba(255, 255, 255, 0.68);
+    border: 1px solid rgba(51, 83, 158, 0.1);
+    box-shadow: 0 10px 30px rgba(51, 83, 158, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.6);
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
 }
@@ -606,13 +669,13 @@ h3 {
     color: #ffffff;
     font-weight: 800;
     background: linear-gradient(135deg, var(--primary), var(--primary-2));
-    box-shadow: 0 14px 32px rgba(59, 130, 246, 0.32);
+    box-shadow: 0 14px 32px rgba(51, 83, 158, 0.24);
 }
 
 .primary-btn.secondary-tone {
-    background: rgba(148, 163, 184, 0.14);
+    background: rgba(255, 255, 255, 0.76);
     color: var(--text-main);
-    box-shadow: none;
+    box-shadow: 0 10px 20px rgba(51, 83, 158, 0.08);
 }
 
 .icon-btn {
@@ -621,15 +684,15 @@ h3 {
     width: 70px;
     height: 70px;
     border-radius: 24px;
-    background: linear-gradient(135deg, #1e293b, #0f172a);
-    color: var(--text-main);
-    border: 1px solid rgba(191, 219, 254, 0.24);
-    box-shadow: 0 16px 34px rgba(96, 165, 250, 0.2);
+    background: linear-gradient(135deg, #33539e, #7facd6);
+    color: #ffffff;
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    box-shadow: 0 16px 34px rgba(51, 83, 158, 0.22);
 }
 
 .icon-btn.is-listening {
-    background: linear-gradient(135deg, #1e293b, #0f172a);
-    box-shadow: 0 0 20px rgba(120, 80, 255, 0.6), 0 0 40px rgba(91, 140, 255, 0.4);
+    background: linear-gradient(135deg, #33539e, #a567b1);
+    box-shadow: 0 0 20px rgba(165, 103, 177, 0.4), 0 0 40px rgba(127, 172, 214, 0.24);
 }
 
 .large-mic-btn {
@@ -637,7 +700,7 @@ h3 {
     height: 72px;
     border-radius: 24px;
     background: linear-gradient(135deg, var(--primary), var(--primary-2));
-    box-shadow: 0 16px 38px rgba(59, 130, 246, 0.32);
+    box-shadow: 0 16px 38px rgba(51, 83, 158, 0.24);
 }
 
 .large-mic-btn .icon-btn-symbol {
@@ -651,7 +714,7 @@ h3 {
 .chat-status-banner.is-live .chat-status-dot,
 .device-status-banner.is-on .device-status-dot {
     background: var(--success);
-    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.56);
+    box-shadow: 0 0 0 0 rgba(127, 172, 214, 0.42);
     animation: pulse-online 1.8s infinite;
 }
 
@@ -660,7 +723,7 @@ h3 {
 .chat-status-banner.is-error .chat-status-dot,
 .device-status-banner.is-off .device-status-dot {
     background: var(--danger);
-    box-shadow: 0 0 20px rgba(251, 113, 133, 0.45);
+    box-shadow: 0 0 20px rgba(232, 183, 212, 0.45);
 }
 
 .realtime-indicator.is-connecting,
@@ -672,7 +735,7 @@ h3 {
 }
 
 .mini-indicator.idle {
-    background: #4b5d7f;
+    background: var(--accent-lavender);
 }
 
 .devices-panel {
@@ -733,7 +796,7 @@ h3 {
 
 .ir-learn-btn small,
 .device-stat-card small {
-    color: rgba(255, 255, 255, 0.82);
+    color: var(--text-soft);
     line-height: 1.45;
 }
 
@@ -745,8 +808,8 @@ h3 {
     margin-top: 18px;
     padding: 14px 16px;
     border-radius: 18px;
-    background: rgba(148, 163, 184, 0.08);
-    border: 1px solid rgba(148, 163, 184, 0.12);
+    background: rgba(255, 255, 255, 0.62);
+    border: 1px solid rgba(51, 83, 158, 0.1);
     color: var(--text-soft);
     line-height: 1.6;
 }
@@ -765,10 +828,11 @@ h3 {
 .ir-learn-field select,
 .ir-learn-field textarea {
     width: 100%;
-    padding: 12px 14px;
+    min-height: 48px;
+    padding: 13px 14px;
     border-radius: 14px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    background: rgba(15, 23, 42, 0.76);
+    border: 1px solid rgba(51, 83, 158, 0.12);
+    background: var(--input-bg);
     color: var(--text-main);
     outline: none;
 }
@@ -776,8 +840,8 @@ h3 {
 .ir-learn-field input:focus,
 .ir-learn-field select:focus,
 .ir-learn-field textarea:focus {
-    border-color: rgba(94, 160, 255, 0.48);
-    box-shadow: 0 0 0 4px rgba(94, 160, 255, 0.12);
+    border-color: rgba(51, 83, 158, 0.34);
+    box-shadow: 0 0 0 4px rgba(127, 172, 214, 0.16);
 }
 
 .ir-learn-field input[readonly] {
@@ -794,8 +858,8 @@ h3 {
 .ir-schema-section,
 .ir-entry-row {
     border-radius: 18px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(51, 83, 158, 0.1);
+    background: rgba(255, 255, 255, 0.58);
 }
 
 .ir-template-meta {
@@ -859,11 +923,11 @@ h3 {
 }
 
 .ir-entry-status.is-success {
-    color: #b5f5c9;
+    color: #567da8;
 }
 
 .ir-entry-status.is-error {
-    color: #ffd4dc;
+    color: #b56f9a;
 }
 
 .ir-entry-row textarea {
@@ -873,6 +937,7 @@ h3 {
 
 .ir-learn-field textarea {
     min-height: 108px;
+    padding-top: 14px;
     resize: vertical;
     line-height: 1.55;
 }
@@ -891,36 +956,36 @@ h3 {
     margin-top: 14px;
     padding: 14px 16px;
     border-radius: 16px;
-    border: 1px dashed rgba(148, 163, 184, 0.28);
-    background: rgba(148, 163, 184, 0.06);
+    border: 1px dashed rgba(51, 83, 158, 0.18);
+    background: rgba(255, 255, 255, 0.5);
     color: var(--text-soft);
     line-height: 1.6;
 }
 
 .ir-learn-status.is-processing {
-    background: rgba(251, 191, 36, 0.1);
-    border-color: rgba(251, 191, 36, 0.24);
-    color: #ffe8a3;
+    background: rgba(165, 103, 177, 0.12);
+    border-color: rgba(165, 103, 177, 0.2);
+    color: #83538f;
 }
 
 .ir-learn-status.is-success {
-    background: rgba(34, 197, 94, 0.12);
-    border-color: rgba(34, 197, 94, 0.24);
-    color: #b5f5c9;
+    background: rgba(127, 172, 214, 0.14);
+    border-color: rgba(127, 172, 214, 0.2);
+    color: #4d719b;
 }
 
 .ir-learn-status.is-error {
-    background: rgba(251, 113, 133, 0.14);
-    border-color: rgba(251, 113, 133, 0.24);
-    color: #ffd4dc;
+    background: rgba(232, 183, 212, 0.18);
+    border-color: rgba(232, 183, 212, 0.24);
+    color: #aa688c;
 }
 
 .device-summary-card {
     min-width: 148px;
     padding: 14px 16px;
     border-radius: 20px;
-    background: rgba(94, 160, 255, 0.08);
-    border: 1px solid rgba(94, 160, 255, 0.12);
+    background: rgba(127, 172, 214, 0.12);
+    border: 1px solid rgba(51, 83, 158, 0.1);
 }
 
 .device-summary-card strong {
@@ -935,8 +1000,8 @@ h3 {
     justify-content: center;
     min-height: 96px;
     padding: 16px 18px;
-    background: linear-gradient(180deg, rgba(94, 160, 255, 0.12), rgba(139, 92, 246, 0.08));
-    border: 1px solid rgba(191, 219, 254, 0.18);
+    background: linear-gradient(180deg, rgba(127, 172, 214, 0.16), rgba(232, 183, 212, 0.14));
+    border: 1px solid rgba(51, 83, 158, 0.1);
 }
 
 .summary-caption {
@@ -992,12 +1057,12 @@ h3 {
     min-height: 240px;
     padding: 18px;
     border-radius: 24px;
-    background: linear-gradient(180deg, rgba(16, 28, 50, 0.96), rgba(12, 24, 44, 0.96));
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    box-shadow: 0 16px 32px rgba(2, 8, 23, 0.22);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.84), rgba(241, 236, 249, 0.98));
+    border: 1px solid rgba(51, 83, 158, 0.1);
+    box-shadow: 0 16px 32px rgba(51, 83, 158, 0.12);
     transition: transform 0.24s ease, box-shadow 0.24s ease, border-color 0.24s ease;
     scroll-snap-align: start;
-    overflow: hidden;
+    overflow: visible;
 }
 
 .device-card:hover {
@@ -1006,8 +1071,8 @@ h3 {
 }
 
 .device-card.is-on {
-    border-color: rgba(94, 160, 255, 0.4);
-    box-shadow: 0 18px 42px rgba(59, 130, 246, 0.22);
+    border-color: rgba(127, 172, 214, 0.28);
+    box-shadow: 0 18px 42px rgba(127, 172, 214, 0.18);
 }
 
 .device-card-top,
@@ -1024,9 +1089,17 @@ h3 {
     align-items: flex-start;
 }
 
+.device-card-tools {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-left: auto;
+}
+
 .device-title-group {
     align-items: center;
     gap: 12px;
+    min-width: 0;
 }
 
 .device-icon {
@@ -1035,17 +1108,58 @@ h3 {
     width: 50px;
     height: 50px;
     border-radius: 18px;
-    background: rgba(94, 160, 255, 0.12);
+    background: rgba(127, 172, 214, 0.16);
     font-size: 1.4rem;
 }
 
 .device-id {
     padding: 6px 12px;
     border-radius: 999px;
-    background: rgba(94, 160, 255, 0.14);
-    color: var(--primary);
+    background: rgba(165, 103, 177, 0.14);
+    color: #7d4f89;
     font-size: 0.76rem;
     font-weight: 800;
+}
+
+.device-card-menu-anchor {
+    position: relative;
+}
+
+.device-card-settings-btn {
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: var(--primary);
+    box-shadow: none;
+}
+
+.device-card-settings-btn:hover {
+    background: transparent;
+    color: #24407f;
+    box-shadow: none;
+    transform: none;
+}
+
+.device-card-settings-btn .settings-gear-icon {
+    width: 20px;
+    height: 20px;
+}
+
+.device-card-menu {
+    top: calc(100% + 8px);
+    right: 0;
+    left: auto;
+    width: 188px;
+    padding: 10px;
+    border-radius: 20px;
+    z-index: 20;
+}
+
+.device-card-menu::before {
+    right: 18px;
 }
 
 .device-status-banner {
@@ -1054,16 +1168,16 @@ h3 {
     gap: 12px;
     padding: 14px 16px;
     border-radius: 18px;
-    background: rgba(148, 163, 184, 0.08);
-    border: 1px solid rgba(148, 163, 184, 0.12);
+    background: rgba(255, 255, 255, 0.54);
+    border: 1px solid rgba(51, 83, 158, 0.1);
 }
 
 .device-status-banner.is-on {
-    background: rgba(34, 197, 94, 0.08);
+    background: rgba(127, 172, 214, 0.12);
 }
 
 .device-status-banner.is-off {
-    background: rgba(251, 113, 133, 0.08);
+    background: rgba(232, 183, 212, 0.16);
 }
 
 .device-status-text {
@@ -1081,8 +1195,8 @@ h3 {
 .info-item {
     padding: 12px 14px;
     border-radius: 16px;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: rgba(255, 255, 255, 0.56);
+    border: 1px solid rgba(51, 83, 158, 0.08);
 }
 
 .info-label {
@@ -1109,19 +1223,20 @@ h3 {
 }
 
 .action-btn.btn-on {
-    background: linear-gradient(135deg, #22c55e, #16a34a);
+    background: linear-gradient(135deg, #7facd6, #33539e);
 }
 
 .action-btn.btn-off {
-    background: linear-gradient(135deg, #fb7185, #f43f5e);
+    background: linear-gradient(135deg, #e8b7d4, #a567b1);
 }
 
 .action-btn.btn-default {
-    background: linear-gradient(135deg, #475569, #334155);
+    background: linear-gradient(135deg, #bfb8da, #7facd6);
+    color: var(--text-main);
 }
 
 .action-btn.is-active {
-    box-shadow: 0 12px 28px rgba(255, 255, 255, 0.14);
+    box-shadow: 0 12px 28px rgba(51, 83, 158, 0.16);
     filter: saturate(1.12) brightness(1.08);
     transform: translateY(-1px);
 }
@@ -1154,15 +1269,15 @@ h3 {
 .error-text {
     padding: 18px;
     border-radius: 18px;
-    background: rgba(148, 163, 184, 0.08);
-    border: 1px dashed rgba(148, 163, 184, 0.18);
+    background: rgba(255, 255, 255, 0.56);
+    border: 1px dashed rgba(51, 83, 158, 0.18);
 }
 
 .error,
 .error-text {
-    color: #ffd4dc;
-    background: rgba(127, 29, 29, 0.22);
-    border-color: rgba(251, 113, 133, 0.24);
+    color: #aa688c;
+    background: rgba(232, 183, 212, 0.18);
+    border-color: rgba(165, 103, 177, 0.16);
 }
 
 .sr-only {
@@ -1202,7 +1317,7 @@ body.auth-locked {
 .auth-backdrop {
     position: absolute;
     inset: 0;
-    background: rgba(3, 8, 18, 0.72);
+    background: rgba(51, 83, 158, 0.18);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
 }
@@ -1214,10 +1329,10 @@ body.auth-locked {
     padding: 28px;
     border-radius: 28px;
     background:
-        radial-gradient(circle at top right, rgba(94, 160, 255, 0.18), transparent 32%),
-        linear-gradient(180deg, rgba(9, 17, 31, 0.96), rgba(11, 23, 41, 0.94));
-    border: 1px solid rgba(191, 219, 254, 0.14);
-    box-shadow: 0 30px 80px rgba(2, 8, 23, 0.56);
+        radial-gradient(circle at top right, rgba(232, 183, 212, 0.24), transparent 32%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(241, 236, 249, 0.98));
+    border: 1px solid rgba(51, 83, 158, 0.12);
+    box-shadow: 0 30px 80px rgba(51, 83, 158, 0.18);
 }
 
 .auth-modal-top {
@@ -1233,7 +1348,7 @@ body.auth-locked {
     gap: 8px;
     padding: 8px 12px;
     border-radius: 999px;
-    background: rgba(148, 163, 184, 0.12);
+    background: rgba(127, 172, 214, 0.12);
     color: var(--text-soft);
     font-size: 0.82rem;
     font-weight: 700;
@@ -1244,7 +1359,7 @@ body.auth-locked {
     height: 10px;
     border-radius: 999px;
     background: var(--warning);
-    box-shadow: 0 0 0 0 rgba(251, 191, 36, 0.42);
+    box-shadow: 0 0 0 0 rgba(165, 103, 177, 0.3);
     animation: pulse-online 1.4s infinite;
 }
 
@@ -1268,8 +1383,8 @@ body.auth-locked {
     margin-top: 22px;
     padding: 8px;
     border-radius: 18px;
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: rgba(255, 255, 255, 0.68);
+    border: 1px solid rgba(51, 83, 158, 0.08);
 }
 
 .auth-mode-btn {
@@ -1285,9 +1400,9 @@ body.auth-locked {
 }
 
 .auth-mode-btn.is-active {
-    color: #06111f;
-    background: linear-gradient(135deg, #9edaff, #7ea8ff);
-    box-shadow: 0 10px 26px rgba(94, 160, 255, 0.22);
+    color: #ffffff;
+    background: linear-gradient(135deg, #33539e, #7facd6);
+    box-shadow: 0 10px 26px rgba(51, 83, 158, 0.18);
 }
 
 .auth-form {
@@ -1309,10 +1424,11 @@ body.auth-locked {
 
 .auth-field input {
     width: 100%;
+    min-height: 52px;
     padding: 14px 16px;
     border-radius: 16px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    background: rgba(15, 23, 42, 0.86);
+    border: 1px solid rgba(51, 83, 158, 0.12);
+    background: var(--input-bg);
     color: var(--text-main);
     outline: none;
     font: inherit;
@@ -1320,8 +1436,8 @@ body.auth-locked {
 }
 
 .auth-field input:focus {
-    border-color: rgba(94, 160, 255, 0.52);
-    box-shadow: 0 0 0 4px rgba(94, 160, 255, 0.12);
+    border-color: rgba(51, 83, 158, 0.34);
+    box-shadow: 0 0 0 4px rgba(127, 172, 214, 0.16);
 }
 
 .auth-submit-btn {
@@ -1338,13 +1454,13 @@ body.auth-locked {
 
 .auth-error {
     min-height: 22px;
-    color: #ffd4dc;
+    color: #aa688c;
     font-size: 0.92rem;
     line-height: 1.5;
 }
 
 .auth-error.is-success {
-    color: #c7ffe0;
+    color: #4d719b;
 }
 
 .auth-note-grid {
@@ -1357,8 +1473,8 @@ body.auth-locked {
 .auth-note-card {
     padding: 14px 16px;
     border-radius: 18px;
-    background: rgba(255, 255, 255, 0.035);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.64);
+    border: 1px solid rgba(51, 83, 158, 0.08);
 }
 
 .auth-note-label {
@@ -1396,7 +1512,7 @@ body.auth-locked {
 .password-modal-backdrop {
     position: absolute;
     inset: 0;
-    background: rgba(3, 8, 18, 0.7);
+    background: rgba(51, 83, 158, 0.16);
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
 }
@@ -1408,8 +1524,8 @@ body.auth-locked {
     padding: 26px;
     border-radius: 26px;
     background:
-        radial-gradient(circle at top right, rgba(94, 160, 255, 0.14), transparent 34%),
-        linear-gradient(180deg, rgba(9, 17, 31, 0.96), rgba(11, 23, 41, 0.95));
+        radial-gradient(circle at top right, rgba(127, 172, 214, 0.22), transparent 34%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(241, 236, 249, 0.98));
 }
 
 .password-modal-head {
@@ -1424,15 +1540,21 @@ body.auth-locked {
 }
 
 .password-close-btn {
-    width: 42px;
-    height: 42px;
-    border: 0;
-    border-radius: 14px;
-    background: rgba(148, 163, 184, 0.12);
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: none;
+    border-radius: 10px;
+    background: transparent;
     color: var(--text-main);
-    font-size: 1.55rem;
+    box-shadow: none;
+    font-size: 1.35rem;
     line-height: 1;
     cursor: pointer;
+}
+
+.password-close-btn:hover {
+    background: rgba(127, 172, 214, 0.08);
 }
 
 .password-modal-desc {

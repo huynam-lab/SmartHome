@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="mask-bg" x1="0%" x2="100%" y1="0%" y2="100%">
+      <stop offset="0%" stop-color="#BFB8DA"/>
+      <stop offset="100%" stop-color="#E8B7D4"/>
+    </linearGradient>
+    <linearGradient id="mask-accent" x1="0%" x2="100%" y1="0%" y2="100%">
+      <stop offset="0%" stop-color="#33539E"/>
+      <stop offset="100%" stop-color="#A567B1"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#mask-bg)"/>
+  <circle cx="256" cy="256" r="170" fill="#7FACD6" fill-opacity="0.16"/>
+  <path d="M166 216c0-49.706 40.294-90 90-90s90 40.294 90 90v68c0 49.706-40.294 90-90 90s-90-40.294-90-90z" fill="#FFFFFF" fill-opacity="0.24" stroke="url(#mask-accent)" stroke-width="18"/>
+  <path d="M256 176c25.405 0 46 20.595 46 46v56c0 25.405-20.595 46-46 46s-46-20.595-46-46v-56c0-25.405 20.595-46 46-46z" fill="url(#mask-accent)"/>
+  <path d="M256 102l96 54v108c0 64.91-38.944 123.477-96 149-57.056-25.523-96-84.09-96-149V156z" fill="none" stroke="#FFFFFF" stroke-opacity="0.3" stroke-width="16"/>
+  <circle cx="256" cy="250" r="16" fill="#FFFFFF"/>
+</svg>

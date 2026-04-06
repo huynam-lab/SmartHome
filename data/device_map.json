@@ -12,7 +12,12 @@
       ],
       "brand": "generic",
       "model": "",
-      "room": "",
+      "room": "sân",
+      "room_aliases": [
+        "ngoài sân",
+        "ngoai san",
+        "san"
+      ],
       "enabled": true,
       "aliases": [
         "den_san",
@@ -51,12 +56,126 @@
           "type": "ir",
           "file": "den_san1min_on.bin",
           "phrases": [
-            "tắt đèn sau 1 phút"
+            "tắt đèn sân sau 1 phút"
           ],
           "semantic": {
             "domain": "timer",
             "operation": "off_after",
             "duration_seconds": 60
+          }
+        }
+      },
+      "presets": {}
+    },
+    "dieu_hoa": {
+      "id": "dieu_hoa",
+      "template_id": "dieu_hoa",
+      "name": "Điều hoà",
+      "device_kind": "air_conditioner",
+      "control_type": "ir",
+      "capabilities": [
+        "power",
+        "temperature",
+        "mode",
+        "fan_speed",
+        "timer"
+      ],
+      "brand": "generic",
+      "model": "",
+      "room": "phòng khách",
+      "room_aliases": [
+        "phòng khách",
+        "phong khach",
+        "khach"
+      ],
+      "enabled": true,
+      "aliases": [
+        "dieu_hoa",
+        "dieu hoa",
+        "điều hoà"
+      ],
+      "state_mode": "optimistic",
+      "state": {
+        "power": "unknown",
+        "mode": null,
+        "temperature": null,
+        "fan_speed": null,
+        "availability": "online"
+      },
+      "actions": {
+        "power.on": {
+          "type": "ir",
+          "file": "dieu_hoa_on.bin",
+          "phrases": [
+            "Bật điều hoà"
+          ],
+          "semantic": {
+            "domain": "power",
+            "operation": "on"
+          }
+        },
+        "power.off": {
+          "type": "ir",
+          "file": "dieu_hoa_off.bin",
+          "phrases": [
+            "Tắt điều hoà"
+          ],
+          "semantic": {
+            "domain": "power",
+            "operation": "off"
+          }
+        }
+      },
+      "presets": {}
+    },
+    "den_nha_bep": {
+      "id": "den_nha_bep",
+      "template_id": "cong_tac",
+      "name": "Đèn nhà bếp",
+      "device_kind": "smart_switch",
+      "control_type": "rf",
+      "rf_frequency": 433,
+      "capabilities": [
+        "power",
+        "timer"
+      ],
+      "brand": "generic",
+      "model": "",
+      "room": "",
+      "enabled": true,
+      "aliases": [
+        "den_nha_bep",
+        "den nha bep",
+        "đèn nhà bếp"
+      ],
+      "state_mode": "managed",
+      "state": {
+        "power": "off",
+        "availability": "online"
+      },
+      "actions": {
+        "power.on": {
+          "type": "rf",
+          "file": "den_nha_bep_on.json",
+          "rf_frequency": 433,
+          "phrases": [
+            "Bật điện nhà bếp"
+          ],
+          "semantic": {
+            "domain": "power",
+            "operation": "on"
+          }
+        },
+        "power.off": {
+          "type": "rf",
+          "file": "den_nha_bep_off.json",
+          "rf_frequency": 433,
+          "phrases": [
+            "Tắt điện nhà bếp"
+          ],
+          "semantic": {
+            "domain": "power",
+            "operation": "off"
           }
         }
       },

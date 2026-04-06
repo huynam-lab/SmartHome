@@ -1,6 +1,5 @@
 import os
 import json
-import re
 import subprocess
 import sys
 from functools import wraps
@@ -12,9 +11,9 @@ from api.auth_service import change_user_password, register_user_account, verify
 from api.device_api import control_device, list_devices
 from config import CURRENT_JETSON_ID
 from controller.command_service import process_text_command
-from core.device_state_store import build_devices_snapshot
+from core.device_state_store import build_devices_snapshot, remove_device_state
 from core.event_bus import list_events, log_event
-from services.device_learning_service import save_empty_device, save_learned_device
+from services.device_learning_service import delete_device, save_empty_device, save_learned_device
 from services.device_template_service import get_device_template, list_device_templates
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
@@ -91,16 +90,23 @@ def require_auth(view_func):
     return wrapped
 
 
-def _validate_ir_filename(filename: str) -> str:
-    safe_filename = os.path.basename((filename or "").strip().replace(" ", ""))
+def _validate_command_filename(filename: str, signal_type: str) -> str:
+    safe_filename = os.path.basename((filename or "").strip())
     if not safe_filename:
-        raise ValueError("Thiếu tên file để lưu lệnh IR")
+        raise ValueError("Thiếu tên file để lưu lệnh")
 
-    if not safe_filename.endswith(".bin"):
-        raise ValueError("Tên file phải có đuôi .bin")
+    extension = ".json" if signal_type == "rf" else ".bin"
+    if not safe_filename.lower().endswith(extension):
+        raise ValueError(f"Tên file phải có đuôi {extension}")
 
-    if not re.fullmatch(r"^[A-Za-z0-9]+_[A-Za-z0-9]+_[A-Za-z0-9]+\.bin$", safe_filename, flags=re.IGNORECASE):
-        raise ValueError("Tên file chưa đúng định dạng. Hãy dùng dạng <phòng>_<thiết bị>_<hành động>.bin, ví dụ: Ds_ac_on.bin hoặc san_den_on.bin")
+    base_name = safe_filename[:-len(extension)].strip()
+    if not base_name:
+        raise ValueError("Tên file không hợp lệ")
+
+    packet_dir = ROOT_DIR / "data" / ("rf_packets" if signal_type == "rf" else "ir_packets")
+    target_path = packet_dir / safe_filename
+    if target_path.exists():
+        raise ValueError(f"Tên file đã tồn tại: {safe_filename}")
 
     return safe_filename
 
@@ -112,20 +118,46 @@ def _normalize_signal_type(signal_type: str) -> str:
     return normalized
 
 
-def run_ir_learn_script(filename: str = "ir_learned.bin", device_name: str = "", signal_type: str = "ir", press_mode: str = "tap"):
-    safe_filename = _validate_ir_filename(filename)
+def _normalize_rf_frequency(rf_frequency):
+    if rf_frequency in {None, ""}:
+        return None
+    try:
+        value = int(str(rf_frequency).strip())
+    except (TypeError, ValueError):
+        raise ValueError("rf_frequency phải là 315 hoặc 433")
+    if value not in {315, 433}:
+        raise ValueError("rf_frequency phải là 315 hoặc 433")
+    return value
+
+
+def run_ir_learn_script(
+    filename: str = "ir_learned.bin",
+    device_name: str = "",
+    signal_type: str = "ir",
+    press_mode: str = "tap",
+    rf_frequency=None,
+):
     safe_signal_type = _normalize_signal_type(signal_type)
+    if safe_signal_type == "auto":
+        safe_signal_type = "ir"
+    safe_filename = _validate_command_filename(filename, safe_signal_type)
     safe_device_name = str(device_name or "").strip()
+    safe_rf_frequency = _normalize_rf_frequency(rf_frequency) if safe_signal_type == "rf" else None
+    module_name = "devices.broadlink.rf_learn" if safe_signal_type == "rf" else "devices.broadlink.ir_learn"
+    mode_label = safe_signal_type.upper()
+    command = [
+        sys.executable,
+        "-m",
+        module_name,
+        "--filename",
+        safe_filename,
+    ]
+    if safe_signal_type == "rf" and safe_rf_frequency is not None:
+        command.extend(["--frequency", str(safe_rf_frequency)])
 
     try:
         result = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "devices.broadlink.ir_learn",
-                "--filename",
-                safe_filename,
-            ],
+            command,
             cwd=str(ROOT_DIR),
             capture_output=True,
             text=True,
@@ -135,7 +167,7 @@ def run_ir_learn_script(filename: str = "ir_learned.bin", device_name: str = "",
     except subprocess.TimeoutExpired as error:
         output = (error.stdout or "").strip()
         error_output = (error.stderr or "").strip()
-        message = "Hết thời gian chờ khi học lệnh IR. Hãy thử lại và bấm remote sớm hơn."
+        message = f"Hết thời gian chờ khi học lệnh {mode_label}. Hãy thử lại và bấm remote sớm hơn."
         if error_output:
             message = f"{message} {error_output}"
         return {
@@ -146,7 +178,7 @@ def run_ir_learn_script(filename: str = "ir_learned.bin", device_name: str = "",
     except Exception as error:
         return {
             "ok": False,
-            "message": f"Không thể khởi chạy chế độ học lệnh IR: {error}",
+            "message": f"Không thể khởi chạy chế độ học lệnh {mode_label}: {error}",
         }
 
     stdout = (result.stdout or "").strip()
@@ -155,11 +187,12 @@ def run_ir_learn_script(filename: str = "ir_learned.bin", device_name: str = "",
     log_event(
         source="api-ir-learn",
         level="info" if result.returncode == 0 else "error",
-        message="IR learn subprocess finished",
+        message=f"{mode_label} learn subprocess finished",
         payload={
             "filename": safe_filename,
             "device_name": safe_device_name,
             "signal_type_requested": safe_signal_type,
+            "rf_frequency_requested": safe_rf_frequency,
             "returncode": result.returncode,
             "stdout": stdout,
             "stderr": stderr,
@@ -169,13 +202,13 @@ def run_ir_learn_script(filename: str = "ir_learned.bin", device_name: str = "",
     if result.returncode != 0:
         return {
             "ok": False,
-            "message": stderr or stdout or "Học lệnh IR thất bại.",
+            "message": stderr or stdout or f"Học lệnh {mode_label} thất bại.",
             "output": combined_output,
         }
 
     return {
         "ok": True,
-        "message": f"Học lệnh thành công. Đã lưu vào JetSon {safe_filename}",
+        "message": f"Học lệnh {mode_label} thành công. Đã lưu vào JetSon {safe_filename}",
         "output": combined_output,
         "filename": safe_filename,
         "device_name": safe_device_name,
@@ -252,6 +285,30 @@ def post_devices():
         }), 500
 
     return jsonify(result), 201
+
+
+@api_bp.delete("/devices/<device_id>")
+@require_auth
+def delete_device_by_id(device_id: str):
+    try:
+        result = delete_device(
+            device_id=device_id,
+            device_map_file=str(DEVICE_MAP_PATH),
+        )
+    except ValueError as error:
+        return jsonify({
+            "ok": False,
+            "message": str(error),
+        }), 404
+    except Exception as error:
+        return jsonify({
+            "ok": False,
+            "message": f"Không xóa được thiết bị: {error}",
+        }), 500
+
+    remove_device_state(result.get("device_id") or device_id)
+    build_devices_snapshot(list_devices())
+    return jsonify(result), 200
 
 
 @api_bp.get("/auth/status")
@@ -470,9 +527,15 @@ def post_ir_learn():
     filename = payload.get("filename") or ""
     device_name = payload.get("device_name") or ""
     signal_type = payload.get("signal_type") or "auto"
+    rf_frequency = payload.get("rf_frequency")
 
     try:
-        result = run_ir_learn_script(filename, device_name=device_name, signal_type=signal_type)
+        result = run_ir_learn_script(
+            filename,
+            device_name=device_name,
+            signal_type=signal_type,
+            rf_frequency=rf_frequency,
+        )
     except ValueError as error:
         result = {
             "ok": False,

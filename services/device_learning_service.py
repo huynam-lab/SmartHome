@@ -8,7 +8,7 @@ import unicodedata
 from copy import deepcopy
 from typing import Any, Dict, List, Tuple
 
-from config import DEVICE_MAP_FILE, ENABLE_DEVICE_MAP_BACKUP
+from config import DEVICE_MAP_FILE, ENABLE_DEVICE_MAP_BACKUP, IR_PACKET_DIR, RF_PACKET_DIR
 from services.device_template_service import get_device_template
 
 
@@ -18,6 +18,25 @@ def _normalize_text(value: Any) -> str:
 
 def _normalize_key(value: Any) -> str:
     return _normalize_text(value).lower()
+
+
+def _normalize_control_type(value: Any, fallback: str = "ir") -> str:
+    normalized = _normalize_key(value) or _normalize_key(fallback) or "ir"
+    if normalized not in {"ir", "rf", "relay", "gpio", "wifi"}:
+        raise ValueError("Kiểu tín hiệu không hợp lệ. Chỉ hỗ trợ IR hoặc RF.")
+    return normalized
+
+
+def _normalize_rf_frequency(value: Any) -> int | None:
+    if value in {None, ""}:
+        return None
+    try:
+        normalized = int(str(value).strip())
+    except (TypeError, ValueError):
+        raise ValueError("Tần số RF phải là 315 hoặc 433.")
+    if normalized not in {315, 433}:
+        raise ValueError("Tần số RF phải là 315 hoặc 433.")
+    return normalized
 
 
 def _strip_accents(value: str) -> str:
@@ -149,27 +168,33 @@ def _find_existing_device_id(
 
 
 def _normalize_action_record(entry_key: str, raw_entry: Any, default_type: str) -> Dict[str, Any]:
-    command_type = default_type
+    command_type = _normalize_control_type(default_type, fallback="ir")
     payload: Dict[str, Any] = {}
 
     if isinstance(raw_entry, str):
         payload["file"] = _normalize_text(raw_entry)
     elif isinstance(raw_entry, dict):
         payload = {str(key): value for key, value in raw_entry.items()}
-        command_type = _normalize_key(payload.get("type") or default_type) or default_type
+        command_type = _normalize_control_type(payload.get("type") or default_type, fallback=default_type)
     else:
         raise ValueError(f"Mục '{entry_key}' không đúng định dạng.")
 
-    command_type = _normalize_key(command_type) or default_type
+    command_type = _normalize_control_type(command_type, fallback=default_type)
     normalized: Dict[str, Any] = {"type": command_type}
 
-    if command_type == "ir":
+    if command_type in {"ir", "rf"}:
         filename = _normalize_text(payload.get("file") or payload.get("filename"))
+        expected_extension = ".json" if command_type == "rf" else ".bin"
         if not filename:
-            raise ValueError(f"Mục '{entry_key}' cần file .bin cho điều khiển IR.")
-        if not filename.endswith(".bin"):
-            raise ValueError(f"Mục '{entry_key}' phải dùng file có đuôi .bin.")
+            raise ValueError(f"Mục '{entry_key}' cần file {expected_extension} cho điều khiển {command_type.upper()}.")
+        if not filename.endswith(expected_extension):
+            raise ValueError(f"Mục '{entry_key}' phải dùng file có đuôi {expected_extension}.")
         normalized["file"] = os.path.basename(filename)
+        if command_type == "rf":
+            rf_frequency = _normalize_rf_frequency(payload.get("rf_frequency") or payload.get("frequency"))
+            if rf_frequency is None:
+                raise ValueError(f"Mục '{entry_key}' cần chọn tần số RF 315 hoặc 433.")
+            normalized["rf_frequency"] = rf_frequency
         phrases = []
         for phrase in _split_phrases(payload.get("phrases")):
             if phrase and phrase not in phrases:
@@ -285,7 +310,12 @@ def create_device_from_template(
         if alias and alias not in aliases:
             aliases.append(alias)
 
-    control_type = template["control_type"]
+    control_type = _normalize_control_type(device_payload.get("control_type") or template["control_type"], fallback=template["control_type"])
+    rf_frequency = _normalize_rf_frequency(device_payload.get("rf_frequency"))
+    if control_type == "rf" and rf_frequency is None and not allow_empty_entries:
+        raise ValueError("Thiết bị RF cần chọn tần số 315 hoặc 433.")
+    if control_type != "rf":
+        rf_frequency = None
     actions = normalize_entry_map(actions_payload, default_type=control_type)
     presets = normalize_entry_map(presets_payload, default_type=control_type)
 
@@ -303,6 +333,7 @@ def create_device_from_template(
         "name": device_name,
         "device_kind": template["device_kind"],
         "control_type": control_type,
+        "rf_frequency": rf_frequency,
         "capabilities": deepcopy(template.get("capabilities") or []),
         "brand": brand or "generic",
         "model": model,
@@ -404,6 +435,8 @@ def save_learned_device(
             "actions": merged_actions,
             "presets": merged_presets,
         }
+        if device_config.get("control_type") != "rf":
+            device_config.pop("rf_frequency", None)
 
     store["devices"][device_config["id"]] = device_config
     save_device_map_store(store, device_map_file=device_map_file)
@@ -413,5 +446,75 @@ def save_learned_device(
         "message": "Cập nhật thiết bị thành công" if existing_config else "Lưu thiết bị thành công",
         "device_id": device_config["id"],
         "device": device_config,
+        "warnings": warnings,
+    }
+
+
+def _collect_declared_packet_files(device_config: Dict[str, Any]) -> List[Tuple[str, str]]:
+    packet_refs: List[Tuple[str, str]] = []
+    for section_name in ("actions", "presets"):
+        entries = dict((device_config or {}).get(section_name) or {})
+        for entry in entries.values():
+            if not isinstance(entry, dict):
+                continue
+            entry_type = _normalize_key(entry.get("type") or device_config.get("control_type"))
+            packet_file = os.path.basename(str(entry.get("file") or "").strip())
+            if entry_type in {"ir", "rf"} and packet_file:
+                packet_refs.append((entry_type, packet_file))
+    return packet_refs
+
+
+def delete_device(
+    device_id: str,
+    device_map_file: str = DEVICE_MAP_FILE,
+    ir_packet_dir: str = IR_PACKET_DIR,
+    rf_packet_dir: str = RF_PACKET_DIR,
+) -> Dict[str, Any]:
+    normalized_device_id = slugify_device_id(device_id)
+    if not normalized_device_id:
+        raise ValueError("Thiếu device_id hợp lệ để xóa.")
+
+    store, warnings = load_device_map_store(device_map_file)
+    devices = dict(store.get("devices") or {})
+    device_config = dict(devices.get(normalized_device_id) or {})
+    if not device_config:
+        raise ValueError(f"Không tìm thấy thiết bị '{normalized_device_id}'.")
+
+    candidate_refs = set(_collect_declared_packet_files(device_config))
+    devices.pop(normalized_device_id, None)
+    store["devices"] = devices
+    save_device_map_store(store, device_map_file=device_map_file)
+
+    referenced_by_others = set()
+    for remaining_config in devices.values():
+        referenced_by_others.update(_collect_declared_packet_files(dict(remaining_config or {})))
+
+    deleted_files: List[str] = []
+    skipped_files: List[str] = []
+    missing_files: List[str] = []
+    packet_dirs = {"ir": ir_packet_dir, "rf": rf_packet_dir}
+
+    for packet_type, packet_file in sorted(candidate_refs):
+        if (packet_type, packet_file) in referenced_by_others:
+            skipped_files.append(packet_file)
+            continue
+
+        packet_dir = packet_dirs.get(packet_type)
+        packet_path = os.path.join(packet_dir, packet_file) if packet_dir else ""
+        if not packet_path or not os.path.isfile(packet_path):
+            missing_files.append(packet_file)
+            continue
+
+        os.remove(packet_path)
+        deleted_files.append(packet_file)
+
+    return {
+        "ok": True,
+        "message": f"Đã xóa thiết bị '{device_config.get('name') or normalized_device_id}'.",
+        "device_id": normalized_device_id,
+        "device_name": device_config.get("name") or normalized_device_id,
+        "deleted_files": deleted_files,
+        "skipped_files": skipped_files,
+        "missing_files": missing_files,
         "warnings": warnings,
     }

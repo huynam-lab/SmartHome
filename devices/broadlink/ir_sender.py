@@ -50,6 +50,7 @@ def load_ir_packet(packet_path: str):
         )
         return None
 
+
 def send_ir_packet(device, packet_bytes: bytes):
     if device is None:
         return {"success": False, "message": "Broadlink device là None"}
@@ -75,3 +76,4 @@ def send_ir_packet(device, packet_bytes: bytes):
             "message": f"Broadlink send_data lỗi: {exc}",
             "error": repr(exc),
         }
+

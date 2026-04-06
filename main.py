@@ -3,7 +3,7 @@ import time
 from datetime import timedelta
 from queue import Empty, Full, Queue
 
-from flask import Flask, render_template, session
+from flask import Flask, render_template, send_from_directory, session
 from flask_socketio import SocketIO, disconnect
 
 from api.routes import api_bp
@@ -13,6 +13,7 @@ from core.device_state_store import build_devices_snapshot
 from core.event_bus import log_event
 from core.realtime import emit_system_log, init_socketio
 from core.voice_state import is_assistant_speaking
+from devices.broadlink.discover import prewarm_device_cache
 from speech.speech_to_text import print_microphone_list, recognize_once
 from speech.tts import speak_text
 
@@ -38,6 +39,20 @@ def create_app():
     @app.get("/")
     def index():
         return render_template("index.html")
+
+    @app.get("/manifest.webmanifest")
+    def manifest():
+        return send_from_directory(app.static_folder, "manifest.webmanifest", mimetype="application/manifest+json")
+
+    @app.get("/service-worker.js")
+    def service_worker():
+        response = send_from_directory(app.static_folder, "service-worker.js", mimetype="application/javascript")
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+    @app.get("/offline")
+    def offline():
+        return render_template("offline.html")
 
     app.register_blueprint(api_bp)
     socketio.init_app(app)
@@ -86,7 +101,6 @@ def run_jetson_voice_listener(stop_event: threading.Event, voice_queue: Queue):
 
     while not stop_event.is_set():
         if is_assistant_speaking():
-            print("[VOICE] Assistant dang noi, tam bo qua microphone input")
             time.sleep(0.05)
             continue
 
@@ -95,7 +109,6 @@ def run_jetson_voice_listener(stop_event: threading.Event, voice_queue: Queue):
             continue
 
         if is_assistant_speaking():
-            print("[VOICE] Assistant dang noi, tam bo qua ket qua microphone")
             continue
 
         print(f"[VOICE] user_text={text}")
@@ -125,7 +138,6 @@ def run_jetson_command_worker(stop_event: threading.Event, voice_queue: Queue):
             continue
 
         if is_assistant_speaking():
-            print("[VOICE] Assistant dang noi, tam bo qua command trong queue")
             voice_queue.task_done()
             continue
 
@@ -169,6 +181,8 @@ if __name__ == "__main__":
     )
     listener_thread.start()
     worker_thread.start()
+
+    threading.Thread(target=prewarm_device_cache, daemon=True).start()
 
     if RUN_WEB_SERVER:
         app = create_app()

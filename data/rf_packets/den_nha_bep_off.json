@@ -1,0 +1,13 @@
+{
+  "packet_base64": "scB8AACfBgAOAAGPDiYOJSoLKQspDScNJw0OJg4mKAwoDgwoJg4NJycNKA0MKAwoJw4NJicODScNJw0nDAABkg0nDiYnDScOKAwoDScODCgNJicOKAwNJygODCcnDiYODScNJygNDCgnDg0mDScNJw0AAZEOJg4nJw0oDScABdw=",
+  "packet_hex": "b1c07c00009f06000e00018f0e260e252a0b290b290d270d270d0e260e26280c280e0c28260e0d27270d280d0c280c28270e0d26270e0d270d270d270c0001920d270e26270d270e280c280d270e0c280d26270e280c0d27280e0c27270e260e0d270d27280d0c28270e0d260d270d270d0001910e260e27270d280d270005dc",
+  "length": 128,
+  "saved_at": 1775367763,
+  "device_id": null,
+  "device_name": null,
+  "action": null,
+  "aliases": [],
+  "broadlink_host": "192.168.88.161",
+  "broadlink_devtype": "0x520b",
+  "rf_frequency_mhz": 433.0
+}

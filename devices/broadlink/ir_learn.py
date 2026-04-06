@@ -42,21 +42,6 @@ def normalize_mac(mac: str) -> bytes:
     return bytes.fromhex(mac)
 
 
-def print_device_info(dev):
-    print("[IR] ===== DEVICE INFO =====")
-    print(f"[IR] class      : {dev.__class__.__name__}")
-    print(f"[IR] host       : {getattr(dev, 'host', None)}")
-    print(f"[IR] mac        : {getattr(dev, 'mac', None)}")
-    dt = getattr(dev, "devtype", None)
-    print(f"[IR] devtype    : {hex(dt) if dt is not None else 'unknown'}")
-    print(f"[IR] model      : {getattr(dev, 'model', '')}")
-    print(f"[IR] name       : {getattr(dev, 'name', '')}")
-    print(f"[IR] has auth   : {hasattr(dev, 'auth')}")
-    print(f"[IR] has learn  : {hasattr(dev, 'enter_learning')}")
-    print(f"[IR] has check  : {hasattr(dev, 'check_data')}")
-    print("[IR] =======================")
-
-
 def force_remote_class(dev):
     """
     Sửa lỗi broadlink cũ nhận RM4 Pro 0x520b thành Device generic.
@@ -90,7 +75,6 @@ def force_remote_class(dev):
 
         patched.auth()
         print("[IR] Đã ép class sang rm4pro và auth lại thành công.")
-        print_device_info(patched)
         return patched
 
     return dev
@@ -105,7 +89,6 @@ def discover_device(timeout=5):
 
     dev = devices[0]
     print(f"[IR] Đã tìm thấy thiết bị: {getattr(dev, 'host', None)}")
-    print_device_info(dev)
     return dev
 
 
@@ -114,7 +97,6 @@ def connect_device(host=None, mac=None, devtype=None, timeout=5):
         print(f"[IR] Kết nối trực tiếp: host={host}, devtype={hex(devtype)}")
 
         dev = broadlink.gendevice(devtype, (host, 80), normalize_mac(mac), name="SmartHome")
-        print_device_info(dev)
     else:
         dev = discover_device(timeout=timeout)
 
@@ -232,8 +214,8 @@ def main():
     except KeyboardInterrupt:
         print("\n[IR] Đã huỷ.")
         sys.exit(1)
-    except Exception as e:
-        print(f"[IR][ERROR] {e}")
+    except Exception:
+        print("[IR] Học lệnh thất bại.")
         sys.exit(1)
 
 

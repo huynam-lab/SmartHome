@@ -40,6 +40,12 @@ def _cleanup_query(query: str) -> str:
         cleaned,
         flags=re.IGNORECASE,
     )
+    cleaned = re.sub(
+        r"\b(cho\s+anh|cho\s+chi|cho\s+chị|cho\s+em|cho\s+toi|cho\s+tôi|khong|không)\b",
+        " ",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
     cleaned = " ".join(cleaned.split()).strip(" ,.!?;:")
     return cleaned
 
@@ -59,7 +65,10 @@ def _normalize_play_query_prefix(query: str) -> str:
 
 
 def _extract_play_query(text: str) -> str:
-    polite_prefix = r"^(?:(?:em|anh|chi|chị|oi|ơi|nhe|nhé|lam\s+on|làm\s+ơn|giup|giúp)\s+)*"
+    polite_prefix = (
+        r"^(?:(?:em|anh|chi|chị|oi|ơi|nhe|nhé|lam\s+on|làm\s+ơn|giup|giúp|hay|hãy|xin|vui\s+lòng)\s+)*"
+        r"(?:(?:co\s+the|có\s+thể)\s+)?"
+    )
     patterns = [
         polite_prefix + r"(?:xin\s+)?(?:mở|mo|phát|phat|bật|bat)\s+(?:(?:cho|giup|giúp|anh|chi|chị|em|toi|tôi)\s+)*(?:bài\s+nhạc|bai\s+nhac|bài\s+hát|bai\s+hat|nhạc|nhac|bài|bai)\s+(.+)$",
         polite_prefix + r"(?:xin\s+)?(?:mở|mo|phát|phat|bật|bat)\s+(?:cho\s+)?(?:(?:anh|chi|chị|em|toi|tôi)\s+)*(?:nhạc|nhac|bài|bai)\s+(.+)$",
@@ -80,7 +89,8 @@ def _looks_like_play_request(text: str, text_n: str) -> bool:
         return True
 
     relaxed_patterns = (
-        r"^(?:(?:em|anh|chi|oi|nhe|giup)\s+)*(?:mo|phat|bat)\s+(?:(?:cho|anh|chi|em|toi)\s+)*(?:nhac|bai)\b",
+        r"^(?:(?:em|anh|chi|oi|nhe|giup|hay|xin|vui\s+long)\s+)*(?:(?:co\s+the)\s+)?(?:mo|phat|bat)\s+(?:(?:cho|anh|chi|em|toi)\s+)*(?:nhac|bai)\b",
+        r"^(?:(?:em|anh|chi|oi|nhe|giup|hay|xin|vui\s+long)\s+)*(?:(?:co\s+the)\s+)?(?:mo|phat|bat)\s+(?:nhac|bai)\s+(?:(?:cho|anh|chi|em|toi)\b)",
     )
     return any(re.search(pattern, text_n) for pattern in relaxed_patterns)
 

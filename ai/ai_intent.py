@@ -8,6 +8,7 @@ from collections import deque
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
+from ai.realtime_intent import parse_realtime_intent
 from config import (
     CHAT_FALLBACK_TEXT,
     DEVICE_LATITUDE,
@@ -27,6 +28,7 @@ from config import (
 )
 from ai.intent_parser import detect_control_request, normalize_text, parse_local_device_intent
 from core.event_bus import log_event
+from services.realtime.router import get_realtime_router
 
 _request_lock = threading.Lock()
 _request_timestamps = deque()
@@ -92,6 +94,39 @@ def _extract_response_text(response: Any) -> str:
         return ""
 
 
+def _extract_finish_reason(response: Any) -> str:
+    try:
+        candidates = getattr(response, "candidates", None) or []
+        if not candidates:
+            return ""
+
+        finish_reason = getattr(candidates[0], "finish_reason", None)
+        if finish_reason is None:
+            return ""
+
+        return str(getattr(finish_reason, "name", finish_reason) or "").strip()
+    except Exception:
+        return ""
+
+
+def _extract_usage_metadata(response: Any) -> Dict[str, Any]:
+    usage = getattr(response, "usage_metadata", None)
+    if not usage:
+        return {}
+
+    payload: Dict[str, Any] = {}
+    for field in (
+        "prompt_token_count",
+        "candidates_token_count",
+        "total_token_count",
+        "thoughts_token_count",
+    ):
+        value = getattr(usage, field, None)
+        if value is not None:
+            payload[field] = value
+    return payload
+
+
 def _wait_for_rpm_slot() -> None:
     rpm_limit = max(1, int(GEMINI_RPM_LIMIT))
 
@@ -139,10 +174,10 @@ def _generate_with_gemini(
     prompt: str,
     temperature: float = 0.2,
     max_output_tokens: int = 220,
-) -> str:
+) -> Dict[str, Any]:
     client = build_gemini_client()
     if not client:
-        return ""
+        return {"text": "", "finish_reason": "", "usage_metadata": {}}
 
     _wait_for_rpm_slot()
 
@@ -157,11 +192,21 @@ def _generate_with_gemini(
         )
         _log(f"Raw response type: {type(response)}")
         text = _extract_response_text(response)
+        finish_reason = _extract_finish_reason(response)
+        usage_metadata = _extract_usage_metadata(response)
+        _log(
+            f"Gemini finish_reason={finish_reason or 'unknown'} "
+            f"usage={usage_metadata or {}}"
+        )
         _log(f"Gemini text: {text!r}")
-        return (text or "").strip()
+        return {
+            "text": (text or "").strip(),
+            "finish_reason": finish_reason,
+            "usage_metadata": usage_metadata,
+        }
     except Exception as exc:
         _log(f"Lỗi gọi Gemini model={GEMINI_MODEL}: {repr(exc)}")
-        return ""
+        return {"text": "", "finish_reason": "", "usage_metadata": {}}
 
 
 def _strip_code_fence(text: str) -> str:
@@ -661,6 +706,7 @@ def build_weather_reply(text: str, context: Optional[Dict[str, Any]] = None) -> 
             temperature=0.4,
             max_output_tokens=max(int(GEMINI_CHAT_MAX_TOKENS), 512),
         )
+        output_text = str(output_text.get("text") or "").strip()
         if output_text:
             return _postprocess_ai_text(output_text)
 
@@ -703,9 +749,39 @@ def _looks_incomplete_ai_text(text: str) -> bool:
     return False
 
 
+def try_handle_realtime_query(text: str) -> Optional[Dict[str, Any]]:
+    intent = parse_realtime_intent(text)
+    if not intent:
+        return None
+
+    router = get_realtime_router()
+    result = router.handle(intent)
+    if not result:
+        return None
+
+    _log(f"Realtime intent matched: domain={intent.domain} entities={intent.entities}")
+    return result
+
+
+def _response_needs_retry(response_payload: Dict[str, Any]) -> bool:
+    text = str(response_payload.get("text") or "").strip()
+    if not text:
+        return True
+
+    finish_reason = str(response_payload.get("finish_reason") or "").strip().upper()
+    if finish_reason in {"MAX_TOKENS", "SAFETY", "RECITATION", "OTHER"}:
+        return True
+
+    return _looks_incomplete_ai_text(text)
+
+
 def build_chat_reply_with_ai(text: str, context: Optional[Dict[str, Any]] = None) -> str:
     if not text:
         return CHAT_FALLBACK_TEXT
+
+    realtime_result = try_handle_realtime_query(text)
+    if realtime_result:
+        return str(realtime_result.get("message") or "").strip() or CHAT_FALLBACK_TEXT
 
     if _is_weather_question(text):
         return build_weather_reply(text, context=context)
@@ -714,22 +790,24 @@ def build_chat_reply_with_ai(text: str, context: Optional[Dict[str, Any]] = None
         return GEMINI_UNAVAILABLE_TEXT
 
     max_tokens = max(int(GEMINI_CHAT_MAX_TOKENS), 512)
-    output_text = _generate_with_gemini(
+    response_payload = _generate_with_gemini(
         prompt=_build_chat_prompt(text),
         temperature=0.6,
         max_output_tokens=max_tokens,
     )
-    if output_text and _looks_incomplete_ai_text(output_text):
+    output_text = str(response_payload.get("text") or "").strip()
+    if _response_needs_retry(response_payload):
         retry_prompt = (
             f"{_build_chat_prompt(text)}\n\n"
             "Yêu cầu bổ sung: Hãy trả lời lại thành một đoạn hoàn chỉnh, kết thúc trọn ý,"
             " không bị dở giữa câu."
         )
-        retry_text = _generate_with_gemini(
+        retry_payload = _generate_with_gemini(
             prompt=retry_prompt,
             temperature=0.4,
-            max_output_tokens=max_tokens,
+            max_output_tokens=min(max_tokens * 2, 1024),
         )
+        retry_text = str(retry_payload.get("text") or "").strip()
         if retry_text:
             output_text = retry_text
     if output_text:

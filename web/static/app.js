@@ -51,7 +51,12 @@ const irLearnBackdropEl = document.getElementById("ir-learn-backdrop");
 const irLearnCloseBtnEl = document.getElementById("ir-learn-close-btn");
 const irDeviceSelectEl = document.getElementById("ir-device-select");
 const irDeviceNameInputEl = document.getElementById("ir-device-name-input");
+const irSignalTypeSelectEl = document.getElementById("ir-signal-type-select");
+const irRfFrequencyFieldEl = document.getElementById("ir-rf-frequency-field");
+const irRfFrequencySelectEl = document.getElementById("ir-rf-frequency-select");
+const irFilenameLabelEl = document.getElementById("ir-filename-label");
 const irFilenameInputEl = document.getElementById("ir-filename-input");
+const irFilenameHintEl = document.getElementById("ir-filename-hint");
 const irSemanticKindSelectEl = document.getElementById("ir-semantic-kind-select");
 const irSemanticValueFieldEl = document.getElementById("ir-semantic-value-field");
 const irSemanticValueLabelEl = document.getElementById("ir-semantic-value-label");
@@ -79,6 +84,7 @@ let pollingIntervalId = null;
 let authMode = "login";
 let isPasswordSubmitting = false;
 let isAddDeviceSubmitting = false;
+let isDeletingDevice = false;
 let irTemplateOptions = [];
 let deviceInventory = [];
 
@@ -166,6 +172,22 @@ const ALLOWED_ERROR_KEYWORDS = [
     "micro",
     "jetson",
 ];
+
+async function registerPwaServiceWorker() {
+    if (!("serviceWorker" in navigator)) {
+        return;
+    }
+
+    try {
+        const registration = await navigator.serviceWorker.register("/service-worker.js", {
+            scope: "/",
+        });
+
+        registration.update().catch(() => { });
+    } catch (error) {
+        console.warn("[pwa] service worker registration failed", error);
+    }
+}
 
 function setAuthFeedback(text = "", mode = "error") {
     if (!authErrorEl) {
@@ -316,7 +338,7 @@ function renderAddDeviceTemplateOptions() {
 }
 
 function getLearnableDevices() {
-    return deviceInventory.filter((device) => String(device.control_type || "").trim().toLowerCase() === "ir");
+    return deviceInventory;
 }
 
 function getDeviceById(deviceId) {
@@ -344,16 +366,35 @@ function syncIrDeviceSelection(deviceId = "") {
         if (irDeviceNameInputEl) {
             irDeviceNameInputEl.value = "";
         }
+        if (irSignalTypeSelectEl) {
+            irSignalTypeSelectEl.value = "ir";
+        }
+        if (irRfFrequencySelectEl) {
+            irRfFrequencySelectEl.value = "";
+        }
+        updateIrSignalTypeForm();
         return;
     }
 
     if (irDeviceNameInputEl) {
         irDeviceNameInputEl.value = selectedDevice.name || selectedDevice.id || "";
     }
+    if (irSignalTypeSelectEl) {
+        const signalType = String(selectedDevice.control_type || "").trim().toLowerCase();
+        irSignalTypeSelectEl.value = signalType === "rf" ? "rf" : "ir";
+    }
+    if (irRfFrequencySelectEl) {
+        const rfFrequency = String(selectedDevice.rf_frequency || "").trim();
+        irRfFrequencySelectEl.value = rfFrequency === "315" || rfFrequency === "433" ? rfFrequency : "";
+    }
+    updateIrSignalTypeForm();
 
     const currentFilename = normalizeIrFilenameInput(irFilenameInputEl?.value || "");
     if (!currentFilename) {
-        const suggestion = suggestIrFilename(selectedDevice.name || selectedDevice.id || "");
+        const suggestion = suggestLearnFilename(
+            selectedDevice.name || selectedDevice.id || "",
+            String(irSignalTypeSelectEl?.value || selectedDevice.control_type || "ir").trim().toLowerCase(),
+        );
         if (suggestion && irFilenameInputEl) {
             irFilenameInputEl.value = suggestion;
         }
@@ -423,7 +464,14 @@ function openIrLearnModal() {
     if (irSemanticKindSelectEl) {
         irSemanticKindSelectEl.value = "power.on";
     }
+    if (irSignalTypeSelectEl) {
+        irSignalTypeSelectEl.value = "ir";
+    }
+    if (irRfFrequencySelectEl) {
+        irRfFrequencySelectEl.value = "";
+    }
     updateIrSemanticForm();
+    updateIrSignalTypeForm();
     renderIrDeviceOptions();
     irLearnModalEl?.classList.add("is-visible");
     irLearnModalEl?.setAttribute("aria-hidden", "false");
@@ -439,6 +487,7 @@ function closeIrLearnModal({ force = false } = {}) {
     irLearnModalEl?.setAttribute("aria-hidden", "true");
     irLearnFormEl?.reset();
     updateIrSemanticForm();
+    updateIrSignalTypeForm();
     setIrLearnModalFeedback("");
 }
 
@@ -710,7 +759,7 @@ function setSummaryText(text) {
     summaryTextEl.textContent = text;
 }
 
-function setIrLearnStatus() {}
+function setIrLearnStatus() { }
 
 function normalizeIrFilenameInput(value) {
     return String(value || "").trim().replaceAll(/\s+/g, "");
@@ -734,6 +783,15 @@ function suggestIrFilename(deviceName) {
     }
 
     return `${normalizedName}_on.bin`;
+}
+
+function suggestLearnFilename(deviceName, signalType = "ir") {
+    const normalizedName = slugifyVietnameseText(deviceName);
+    if (!normalizedName) {
+        return "";
+    }
+
+    return signalType === "rf" ? `${normalizedName}_on.json` : `${normalizedName}_on.bin`;
 }
 
 function suggestCommandFilename(deviceName, commandKey) {
@@ -808,6 +866,29 @@ function updateIrSemanticForm() {
         irSemanticValueInputEl.placeholder = config.placeholder || "";
         if (!requiresValue) {
             irSemanticValueInputEl.value = "";
+        }
+    }
+}
+
+function updateIrSignalTypeForm() {
+    const signalType = String(irSignalTypeSelectEl?.value || "ir").trim().toLowerCase();
+    const isRf = signalType === "rf";
+    irRfFrequencyFieldEl?.classList.toggle("is-hidden", !isRf);
+    if (irFilenameLabelEl) {
+        irFilenameLabelEl.textContent = isRf ? "Tên file .json" : "Tên file .bin";
+    }
+    if (irFilenameInputEl) {
+        irFilenameInputEl.placeholder = isRf ? "Ví dụ: den_san_on.json" : "Ví dụ: den_san_on.bin";
+    }
+    if (irFilenameHintEl) {
+        irFilenameHintEl.textContent = isRf
+            ? "Ví dụ: den_san_on.json, den_san_off.json"
+            : "Ví dụ: den_san_on.bin, den_san_off.bin";
+    }
+    if (irRfFrequencySelectEl) {
+        irRfFrequencySelectEl.required = isRf;
+        if (!isRf) {
+            irRfFrequencySelectEl.value = "";
         }
     }
 }
@@ -895,8 +976,15 @@ function buildDefaultActionPhrases(deviceName, kind, rawValue) {
     return [];
 }
 
-function isValidIrFilename(filename) {
-    return /^[a-zA-Z0-9]+_[a-zA-Z0-9]+_[a-zA-Z0-9]+\.bin$/i.test(normalizeIrFilenameInput(filename));
+function isValidLearnFilename(filename, signalType = "ir") {
+    const normalized = normalizeIrFilenameInput(filename);
+    const extension = signalType === "rf" ? ".json" : ".bin";
+
+    if (!normalized.toLowerCase().endsWith(extension)) {
+        return false;
+    }
+
+    return normalized.length > extension.length;
 }
 
 function setIrLearnLoadingState(loading) {
@@ -919,6 +1007,12 @@ function setIrLearnLoadingState(loading) {
     }
     if (irSemanticKindSelectEl) {
         irSemanticKindSelectEl.disabled = loading;
+    }
+    if (irSignalTypeSelectEl) {
+        irSignalTypeSelectEl.disabled = loading;
+    }
+    if (irRfFrequencySelectEl) {
+        irRfFrequencySelectEl.disabled = loading;
     }
     if (irSemanticValueInputEl) {
         irSemanticValueInputEl.disabled = loading;
@@ -1299,6 +1393,82 @@ function updateDeviceActionButtons(deviceId, device, processing = false) {
     });
 }
 
+function closeDeviceMenus() {
+    document.querySelectorAll("[data-device-menu]").forEach((menu) => {
+        menu.classList.remove("is-open");
+        menu.setAttribute("aria-hidden", "true");
+    });
+
+    document.querySelectorAll("[data-device-menu-btn]").forEach((button) => {
+        button.setAttribute("aria-expanded", "false");
+    });
+}
+
+function toggleDeviceMenu(button) {
+    const anchor = button?.closest("[data-device-menu-anchor]");
+    const menu = anchor?.querySelector("[data-device-menu]");
+    if (!button || !menu) {
+        return;
+    }
+
+    const willOpen = !menu.classList.contains("is-open");
+    closeDeviceMenus();
+
+    if (!willOpen) {
+        return;
+    }
+
+    menu.classList.add("is-open");
+    menu.setAttribute("aria-hidden", "false");
+    button.setAttribute("aria-expanded", "true");
+}
+
+async function handleDeleteDevice(deviceId) {
+    const device = getDeviceById(deviceId);
+    const deviceName = device?.name || deviceId;
+    const confirmed = window.confirm(
+        `Xóa thiết bị "${deviceName}"?\n\nHệ thống sẽ xóa thiết bị khỏi device_map và xóa các file IR/RF liên quan nếu không còn thiết bị khác sử dụng.`
+    );
+    if (!confirmed || isDeletingDevice) {
+        return;
+    }
+
+    isDeletingDevice = true;
+    closeDeviceMenus();
+    setChatStatus(`Đang xóa thiết bị ${deviceName}...`, "processing");
+
+    try {
+        const { result } = await fetchJson(`/api/devices/${encodeURIComponent(deviceId)}`, {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+        });
+
+        await loadDevices();
+        setChatStatus("Đã xóa thiết bị", "live");
+
+        const deletedSummary = Array.isArray(result.deleted_files) && result.deleted_files.length
+            ? ` File đã xóa: ${result.deleted_files.join(", ")}.`
+            : "";
+        const skippedSummary = Array.isArray(result.skipped_files) && result.skipped_files.length
+            ? ` File giữ lại vì còn thiết bị khác dùng: ${result.skipped_files.join(", ")}.`
+            : "";
+
+        addChatMessage("system", `${result.message || `Đã xóa thiết bị ${deviceName}.`}${deletedSummary}${skippedSummary}`, Date.now(), {
+            fingerprint: `device-delete-${deviceId}-${Date.now()}`,
+        });
+    } catch (error) {
+        if (!error.isAuth) {
+            setChatStatus("Không xóa được thiết bị", "error");
+            addChatMessage("system", `Không xóa được thiết bị ${deviceName}: ${error.message}`, Date.now(), {
+                isError: true,
+                fingerprint: `device-delete-error-${deviceId}-${Date.now()}`,
+            });
+        }
+    } finally {
+        isDeletingDevice = false;
+    }
+}
+
 function buildDeviceCard(device) {
     const visibleActions = (device.actions || []).filter((action) => ["on", "off", "power.on", "power.off"].includes(action));
     const actionsHtml = visibleActions
@@ -1332,7 +1502,35 @@ function buildDeviceCard(device) {
                         <p class="device-meta">${escapeHtml(device.type_label || device.type || "unknown")}</p>
                     </div>
                 </div>
-                <span class="device-id">${escapeHtml(device.id)}</span>
+                <div class="device-card-tools">
+                   
+                    <div class="device-card-menu-anchor" data-device-menu-anchor>
+                        <button
+                            type="button"
+                            class="settings-btn device-card-settings-btn"
+                            aria-label="Mở tác vụ cho ${escapeHtml(device.name)}"
+                            aria-haspopup="menu"
+                            aria-expanded="false"
+                            data-device-menu-btn
+                        >
+                            <span class="settings-gear" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" class="settings-gear-icon" focusable="false">
+                                    <path fill="currentColor" d="M19.14 12.94c.04-.31.06-.62.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.25 7.25 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.49-.42h-3.84a.5.5 0 0 0-.49.42l-.36 2.54c-.58.22-1.12.53-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.7 8.84a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.62-.06.94s.02.63.06.94L2.82 14.52a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.5.41 1.05.72 1.63.94l.36 2.54a.5.5 0 0 0 .49.42h3.84a.5.5 0 0 0 .49-.42l.36-2.54c.58-.22 1.12-.53 1.63-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7Z" />
+                                </svg>
+                            </span>
+                        </button>
+                        <div class="settings-menu device-card-menu" role="menu" aria-hidden="true" data-device-menu>
+                            <button
+                                type="button"
+                                class="settings-menu-item danger"
+                                role="menuitem"
+                                data-device-delete="${escapeHtml(device.id)}"
+                            >
+                                Xóa thiết bị
+                            </button>
+                        </div>
+                    </div>
+                </div>
             </div>
             <div class="${getStatusBannerClass(currentState, false)}" data-device-status-banner="${escapeHtml(device.id)}">
                 <div>
@@ -1373,16 +1571,31 @@ function bindDeviceActions() {
             sendDeviceCommand(card.dataset.deviceId, button.dataset.deviceAction, button);
         });
     });
+
+    document.querySelectorAll("[data-device-menu-btn]").forEach((button) => {
+        button.addEventListener("click", (event) => {
+            event.stopPropagation();
+            toggleDeviceMenu(button);
+        });
+    });
+
+    document.querySelectorAll("[data-device-delete]").forEach((button) => {
+        button.addEventListener("click", (event) => {
+            event.stopPropagation();
+            handleDeleteDevice(button.dataset.deviceDelete);
+        });
+    });
 }
 
 function renderDevices(devices) {
+    deviceStateMap.clear();
+
     if (!devices.length) {
         deviceListEl.innerHTML = '<p class="empty-state">Chưa có thiết bị nào trong hệ thống.</p>';
         setSummaryText("0 thiết bị");
         return;
     }
 
-    deviceStateMap.clear();
     devices.forEach((device) => deviceStateMap.set(device.id, device));
     deviceListEl.innerHTML = devices.map((device) => buildDeviceCard(device)).join("");
     setSummaryText(`${devices.length} thiết bị khả dụng`);
@@ -1549,7 +1762,7 @@ function closeIrLearnForm() {
 }
 
 function inferActionKeyFromFilename(filename) {
-    const safeFilename = normalizeIrFilenameInput(filename).replace(/\.bin$/i, "");
+    const safeFilename = normalizeIrFilenameInput(filename).replace(/\.(bin|json)$/i, "");
     const parts = safeFilename.split("_").filter(Boolean);
     const actionToken = parts[parts.length - 1] || "";
 
@@ -1584,6 +1797,8 @@ async function learnIrCommand(event) {
     const selectedDevice = getDeviceById(deviceId);
     const templateId = String(selectedDevice?.template_id || "").trim();
     const deviceName = String(selectedDevice?.name || irDeviceNameInputEl?.value || "").trim();
+    const signalType = String(irSignalTypeSelectEl?.value || selectedDevice?.control_type || "ir").trim().toLowerCase();
+    const rfFrequency = String(irRfFrequencySelectEl?.value || selectedDevice?.rf_frequency || "").trim();
     const filename = normalizeIrFilenameInput(irFilenameInputEl?.value || "");
     const semanticKind = String(irSemanticKindSelectEl?.value || "power.on").trim();
     const semanticValue = String(irSemanticValueInputEl?.value || "").trim();
@@ -1601,14 +1816,30 @@ async function learnIrCommand(event) {
         return;
     }
 
+    if (!["ir", "rf"].includes(signalType)) {
+        setIrLearnModalFeedback("Vui lòng chọn kiểu tín hiệu IR hoặc RF.");
+        irSignalTypeSelectEl?.focus();
+        return;
+    }
+
+    if (signalType === "rf" && !["315", "433"].includes(rfFrequency)) {
+        setIrLearnModalFeedback("Thiết bị RF cần chọn tần số 315 hoặc 433.");
+        irRfFrequencySelectEl?.focus();
+        return;
+    }
+
     if (!filename) {
-        setIrLearnModalFeedback("Vui lòng nhập tên file .bin.");
+        setIrLearnModalFeedback(signalType === "rf" ? "Vui lòng nhập tên file .json." : "Vui lòng nhập tên file .bin.");
         irFilenameInputEl?.focus();
         return;
     }
 
-    if (!isValidIrFilename(filename)) {
-        setIrLearnModalFeedback("Tên file .bin chưa đúng định dạng. Ví dụ: den_san_on.bin");
+    if (!isValidLearnFilename(filename, signalType)) {
+        setIrLearnModalFeedback(
+            signalType === "rf"
+                ? "Tên file RF không hợp lệ. Chỉ cần có đuôi .json và không được để trống."
+                : "Tên file IR không hợp lệ. Chỉ cần có đuôi .bin và không được để trống."
+        );
         irFilenameInputEl?.focus();
         return;
     }
@@ -1628,7 +1859,7 @@ async function learnIrCommand(event) {
 
     setIrLearnModalFeedback("");
     setIrLearnLoadingState(true);
-    setChatStatus("Broadlink đang học file IR...", "processing");
+    setChatStatus(`Broadlink đang học tín hiệu ${signalType.toUpperCase()}...`, "processing");
 
     try {
         await fetchJson("/api/ir/learn", {
@@ -1637,9 +1868,20 @@ async function learnIrCommand(event) {
             body: JSON.stringify({
                 filename,
                 device_name: deviceName,
-                signal_type: "ir",
+                signal_type: signalType,
+                rf_frequency: signalType === "rf" ? Number.parseInt(rfFrequency, 10) : null,
             }),
         });
+
+        const actionRecord = {
+            type: signalType,
+            file: filename,
+            semantic: actionPayload.semantic,
+            phrases: phrasesPayload,
+        };
+        if (signalType === "rf") {
+            actionRecord.rf_frequency = Number.parseInt(rfFrequency, 10);
+        }
 
         const { result } = await fetchJson("/api/device-learn/save", {
             method: "POST",
@@ -1649,15 +1891,12 @@ async function learnIrCommand(event) {
                 device: {
                     id: selectedDevice.id,
                     name: deviceName,
+                    control_type: signalType,
+                    rf_frequency: signalType === "rf" ? Number.parseInt(rfFrequency, 10) : null,
                     aliases: Array.isArray(selectedDevice.aliases) ? selectedDevice.aliases : [deviceName],
                 },
                 actions: {
-                    [actionPayload.actionKey]: {
-                        type: "ir",
-                        file: filename,
-                        semantic: actionPayload.semantic,
-                        phrases: phrasesPayload,
-                    },
+                    [actionPayload.actionKey]: actionRecord,
                 },
                 presets: {},
             }),
@@ -1954,12 +2193,19 @@ function startVoiceRecognition() {
 
 function handleSnapshot(payload) {
     const devices = payload?.devices || [];
-    if (devices.length) {
-        renderDevices(devices);
-    }
+    deviceInventory = Array.isArray(devices) ? devices : [];
+    renderIrDeviceOptions();
+    renderDevices(deviceInventory);
 }
 
 function handleDeviceStateChanged(payload) {
+    if (payload?.removed && payload?.id) {
+        deviceInventory = deviceInventory.filter((device) => String(device.id || "") !== String(payload.id));
+        renderIrDeviceOptions();
+        renderDevices(deviceInventory);
+        return;
+    }
+
     if (payload?.id) {
         mergeDeviceState(payload.id, payload);
     }
@@ -2055,7 +2301,7 @@ async function unlockControlUi(sessionData = {}) {
             ? "Không có ô nhập tay, sau khi nhận diện xong hệ thống sẽ tự gửi lên Jetson."
             : "Hãy mở bằng Chrome hoặc Edge để dùng điều khiển giọng nói.",
     });
-    setIrLearnStatus("Sẵn sàng học lệnh. Hệ thống sẽ tự học và tự phân loại tín hiệu.", "idle");
+    setIrLearnStatus("Sẵn sàng học lệnh. Hãy chọn IR hoặc RF trước khi bắt đầu.", "idle");
     initializeApp();
     await loadIrTemplateOptions();
     await loadDevices();
@@ -2206,10 +2452,12 @@ addDeviceBackdropEl?.addEventListener("click", closeAddDeviceModal);
 addDeviceFormEl?.addEventListener("submit", submitAddDevice);
 irLearnCloseBtnEl?.addEventListener("click", closeIrLearnForm);
 irLearnBackdropEl?.addEventListener("click", closeIrLearnForm);
+irSignalTypeSelectEl?.addEventListener("change", updateIrSignalTypeForm);
 irLearnFormEl?.addEventListener("submit", learnIrCommand);
 
 document.addEventListener("click", (event) => {
     if (!settingsMenuEl || !settingsBtnEl) {
+        closeDeviceMenus();
         return;
     }
 
@@ -2217,11 +2465,16 @@ document.addEventListener("click", (event) => {
     if (target instanceof Node && !settingsMenuEl.contains(target) && !settingsBtnEl.contains(target)) {
         closeSettingsMenu();
     }
+
+    if (target instanceof Node && !target.closest("[data-device-menu-anchor]")) {
+        closeDeviceMenus();
+    }
 });
 
 document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
         closeSettingsMenu();
+        closeDeviceMenus();
         closePasswordModal();
         closeAddDeviceModal();
         closeIrLearnForm();
@@ -2266,4 +2519,6 @@ if (irSemanticKindSelectEl) {
 
 setAuthMode("login");
 updateIrSemanticForm();
+updateIrSignalTypeForm();
+registerPwaServiceWorker();
 bootstrapAuthentication();

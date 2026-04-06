@@ -176,6 +176,24 @@ def set_command_status(
     return payload
 
 
+def remove_device_state(device_id: str):
+    removed = None
+    with _LOCK:
+        removed = _STATE.pop(device_id, None)
+
+    if not removed:
+        return None
+
+    payload = {
+        "id": device_id,
+        "removed": True,
+        "ts": int(time.time() * 1000),
+    }
+    log_event(source="device-state", level="info", message="Da xoa trang thai thiet bi", payload=payload)
+    emit_event("device_state_changed", payload)
+    return payload
+
+
 def build_devices_snapshot(devices: list):
     snapshot = {
         "devices": devices,

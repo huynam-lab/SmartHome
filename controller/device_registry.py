@@ -3,7 +3,7 @@ import os
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from config import DEVICE_MAP_FILE, IR_PACKET_DIR
+from config import DEVICE_MAP_FILE, IR_PACKET_DIR, RF_PACKET_DIR
 from core.event_bus import log_event
 
 
@@ -71,6 +71,13 @@ def _normalize_command_entries(raw_entries: Any, default_type: str) -> Dict[str,
 
         if entry_payload.get("type") == "ir" and entry_payload.get("file"):
             entry_payload["file"] = str(entry_payload.get("file") or "").strip()
+        if entry_payload.get("type") == "rf" and entry_payload.get("file"):
+            entry_payload["file"] = str(entry_payload.get("file") or "").strip()
+        if entry_payload.get("type") == "rf" and entry_payload.get("rf_frequency") not in {None, ""}:
+            try:
+                entry_payload["rf_frequency"] = int(entry_payload.get("rf_frequency"))
+            except (TypeError, ValueError):
+                entry_payload.pop("rf_frequency", None)
         if isinstance(entry_payload.get("phrases"), list):
             entry_payload["phrases"] = [
                 str(item or "").strip()
@@ -134,9 +141,15 @@ def normalize_device_id(device_id: str, device_map: DeviceMap) -> str:
 
 
 class DeviceRegistry:
-    def __init__(self, device_map_file: str = DEVICE_MAP_FILE, packet_dir: str = IR_PACKET_DIR):
+    def __init__(
+        self,
+        device_map_file: str = DEVICE_MAP_FILE,
+        packet_dir: str = IR_PACKET_DIR,
+        rf_packet_dir: str = RF_PACKET_DIR,
+    ):
         self.device_map_file = device_map_file
         self.packet_dir = packet_dir
+        self.rf_packet_dir = rf_packet_dir
         self._device_map: DeviceMap = {}
         self._alias_index: Dict[str, str] = {}
         self._load_errors: List[Dict[str, Any]] = []
@@ -239,8 +252,9 @@ class DeviceRegistry:
         action_config = packet_info.get("action_config") or {}
         action_type = _normalize_key(action_config.get("type") or device_config.get("control_type") or "unknown")
 
-        if device_config and action_type == "ir" and not packet_info.get("packet_file"):
-            errors.append(f"Thiếu file .bin cho action '{action_key}' của thiết bị '{normalized_device}'")
+        if device_config and action_type in {"ir", "rf"} and not packet_info.get("packet_file"):
+            packet_label = ".json" if action_type == "rf" else ".bin"
+            errors.append(f"Thiếu file {packet_label} cho action '{action_key}' của thiết bị '{normalized_device}'")
 
         return {
             "valid": not errors,
@@ -256,14 +270,16 @@ class DeviceRegistry:
         action_info = self.resolve_action_config(device_id_or_alias, action)
         action_config = action_info.get("action_config") or {}
         action_type = _normalize_key(action_config.get("type") or action_info.get("control_type") or "unknown")
-        packet_file = str(action_config.get("file") or "").strip() if action_type == "ir" else None
-        packet_path = os.path.join(self.packet_dir, packet_file) if packet_file else None
+        packet_dir = self.packet_dir if action_type == "ir" else self.rf_packet_dir if action_type == "rf" else None
+        packet_file = str(action_config.get("file") or "").strip() if action_type in {"ir", "rf"} else None
+        packet_path = os.path.join(packet_dir, packet_file) if packet_dir and packet_file else None
         packet_exists = bool(packet_path and os.path.exists(packet_path))
         packet_size = os.path.getsize(packet_path) if packet_exists and packet_path else 0
 
         return {
             **action_info,
             "action_type": action_type,
+            "packet_dir": packet_dir,
             "packet_file": packet_file,
             "packet_path": packet_path,
             "packet_exists": packet_exists,
@@ -301,19 +317,22 @@ class DeviceRegistry:
 
         for device_id, config in self._device_map.items():
             for action, action_config in dict(config.get("actions") or {}).items():
-                if _normalize_key((action_config or {}).get("type")) != "ir":
+                action_type = _normalize_key((action_config or {}).get("type") or config.get("control_type"))
+                if action_type not in {"ir", "rf"}:
                     continue
 
                 packet_file = str((action_config or {}).get("file") or "").strip()
                 if packet_file:
                     declared_packets.add(packet_file)
 
-                packet_path = os.path.join(self.packet_dir, packet_file) if packet_file else None
+                packet_dir = self.packet_dir if action_type == "ir" else self.rf_packet_dir
+                packet_path = os.path.join(packet_dir, packet_file) if packet_file else None
                 if not packet_file or not packet_path or not os.path.exists(packet_path):
                     missing_packets.append(
                         {
                             "device_id": device_id,
                             "action": action,
+                            "action_type": action_type,
                             "packet_file": packet_file,
                             "packet_path": packet_path,
                             "exists": False,
@@ -327,6 +346,7 @@ class DeviceRegistry:
         return {
             "device_map_file": self.device_map_file,
             "packet_dir": self.packet_dir,
+            "rf_packet_dir": self.rf_packet_dir,
             "declared_packet_count": len(declared_packets),
             "available_packet_count": len(available_packets),
             "missing_packets": missing_packets,
@@ -375,19 +395,21 @@ class DeviceRegistry:
 
             for action, action_config in actions.items():
                 action_type = _normalize_key((action_config or {}).get("type") or config.get("control_type"))
-                if action_type == "ir":
+                if action_type in {"ir", "rf"}:
                     packet_file = str((action_config or {}).get("file") or "").strip()
+                    packet_dir = self.packet_dir if action_type == "ir" else self.rf_packet_dir
+                    packet_label = ".bin" if action_type == "ir" else ".json"
                     if not packet_file:
                         issues.append(
                             ValidationIssue(
                                 code="missing_packet_file",
-                                message=f"Thiết bị '{device_id}' action '{action}' chưa khai báo file .bin",
+                                message=f"Thiết bị '{device_id}' action '{action}' chưa khai báo file {packet_label}",
                                 device_id=device_id,
                                 action=action,
                             )
                         )
                     else:
-                        packet_path = os.path.join(self.packet_dir, packet_file)
+                        packet_path = os.path.join(packet_dir, packet_file)
                         if not os.path.exists(packet_path):
                             issues.append(
                                 ValidationIssue(
@@ -476,6 +498,12 @@ class DeviceRegistry:
                 if alias_key and alias_key != normalized_id and alias_key not in aliases:
                     aliases.append(alias_key)
 
+            room_aliases = []
+            for room_alias in list(raw_config.get("room_aliases") or raw_config.get("location_aliases") or []):
+                room_alias_key = _normalize_key(room_alias)
+                if room_alias_key and room_alias_key not in room_aliases:
+                    room_aliases.append(room_alias_key)
+
             control_type = _normalize_key(raw_config.get("control_type") or raw_config.get("type")) or "unknown"
             state_payload = raw_config.get("state")
             if state_payload is None or state_payload == "":
@@ -489,6 +517,12 @@ class DeviceRegistry:
                 "name": str(raw_config.get("name") or normalized_id),
                 "device_kind": _normalize_key(raw_config.get("device_kind") or raw_config.get("type")) or "unknown",
                 "control_type": control_type,
+                "rf_frequency": (
+                    int(raw_config.get("rf_frequency"))
+                    if raw_config.get("rf_frequency") not in {None, ""}
+                    and str(raw_config.get("rf_frequency")).strip().isdigit()
+                    else None
+                ),
                 "capabilities": [
                     _normalize_key(item)
                     for item in list(raw_config.get("capabilities") or [])
@@ -497,6 +531,7 @@ class DeviceRegistry:
                 "brand": str(raw_config.get("brand") or "unknown").strip(),
                 "model": str(raw_config.get("model") or "").strip(),
                 "room": str(raw_config.get("room") or "").strip(),
+                "room_aliases": room_aliases,
                 "enabled": bool(raw_config.get("enabled", True)),
                 "aliases": aliases,
                 "state_mode": str(raw_config.get("state_mode") or ("optimistic" if control_type == "ir" else "managed")).strip(),

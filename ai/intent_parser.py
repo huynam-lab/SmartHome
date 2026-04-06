@@ -9,8 +9,22 @@ from core.event_bus import log_event
 Intent = Dict[str, str]
 
 CONTROL_ACTION_SYNONYMS = {
-    "on": ["bat", "mo", "khoi dong"],
-    "off": ["tat", "dong", "ngat", "dung"],
+    "on": ["bat", "mo", "khoi dong", "bat len", "mo len"],
+    "off": ["tat", "dong", "ngat", "dung", "tat di", "ngat di"],
+}
+
+ACTION_VERB_HINTS = {
+    "on": [
+        "bat",
+        "mo",
+        "khoi dong",
+    ],
+    "off": [
+        "tat",
+        "dong",
+        "ngat",
+        "dung",
+    ],
 }
 
 COMMAND_PREFIX_WORDS = {
@@ -49,6 +63,30 @@ DEVICE_REFERENCE_FILLER_WORDS = {
     "vuc",
     "phia",
     "cua",
+    "cho",
+    "toi",
+    "giup",
+    "dum",
+    "voi",
+    "nhe",
+    "di",
+    "nha",
+    "cai",
+    "chiec",
+    "ho",
+}
+
+COMMAND_NOISE_WORDS = COMMAND_PREFIX_WORDS | COMMAND_TAIL_WORDS | DEVICE_REFERENCE_FILLER_WORDS | {
+    "toi",
+    "minh",
+    "tao",
+    "tui",
+    "ho",
+    "phat",
+    "thu",
+    "xem",
+    "duoc",
+    "khong",
 }
 
 INFO_QUESTION_PHRASES = [
@@ -95,7 +133,7 @@ def _has_phrase(text: str, phrase: str) -> bool:
 
 def _extract_action(text_n: str) -> Optional[str]:
     matched_actions: List[str] = []
-    for action, keywords in CONTROL_ACTION_SYNONYMS.items():
+    for action, keywords in ACTION_VERB_HINTS.items():
         if any(_has_phrase(text_n, keyword) for keyword in keywords):
             matched_actions.append(action)
 
@@ -235,13 +273,103 @@ def _has_device_phrase(text_n: str, phrase: str) -> bool:
     return False
 
 
+def _split_meaningful_tokens(text: str) -> List[str]:
+    return [
+        token
+        for token in normalize_text(text).split()
+        if token and token not in COMMAND_NOISE_WORDS
+    ]
+
+
+def _tokens_in_order(text_tokens: List[str], expected_tokens: List[str]) -> bool:
+    if not text_tokens or not expected_tokens:
+        return False
+    cursor = 0
+    for token in expected_tokens:
+        while cursor < len(text_tokens) and text_tokens[cursor] != token:
+            cursor += 1
+        if cursor >= len(text_tokens):
+            return False
+        cursor += 1
+    return True
+
+
+def _score_term_match(text_n: str, term: str) -> float:
+    if not text_n or not term:
+        return 0.0
+
+    if _has_device_phrase(text_n, term):
+        return 1.0
+
+    text_tokens = _split_meaningful_tokens(text_n)
+    term_tokens = _split_meaningful_tokens(term)
+    if not text_tokens or not term_tokens:
+        return 0.0
+
+    common_count = sum(1 for token in term_tokens if token in text_tokens)
+    coverage = common_count / max(len(term_tokens), 1)
+    ordered_bonus = 0.2 if _tokens_in_order(text_tokens, term_tokens) else 0.0
+    single_token_penalty = 0.15 if len(term_tokens) == 1 else 0.0
+    score = max(0.0, min(1.0, coverage * 0.85 + ordered_bonus - single_token_penalty))
+    return score
+
+
+def _score_phrase_match(text_n: str, phrase: str) -> float:
+    if not text_n or not phrase:
+        return 0.0
+    if _has_phrase(text_n, phrase):
+        return 1.0
+
+    text_tokens = _split_meaningful_tokens(text_n)
+    phrase_tokens = _split_meaningful_tokens(phrase)
+    if not text_tokens or not phrase_tokens:
+        return 0.0
+
+    common_count = sum(1 for token in phrase_tokens if token in text_tokens)
+    coverage = common_count / max(len(phrase_tokens), 1)
+    ordered_bonus = 0.15 if _tokens_in_order(text_tokens, phrase_tokens) else 0.0
+    return max(0.0, min(1.0, coverage * 0.9 + ordered_bonus))
+
+
 def _extract_action_keywords() -> List[str]:
     keywords: List[str] = []
-    for items in CONTROL_ACTION_SYNONYMS.values():
+    for items in ACTION_VERB_HINTS.values():
         for item in items:
             if item not in keywords:
                 keywords.append(item)
     return keywords
+
+
+def parse_command_semantics(text: str) -> Dict[str, Any]:
+    text_n = normalize_text(text)
+    matched_keywords: List[str] = []
+
+    for action, keywords in ACTION_VERB_HINTS.items():
+        for keyword in keywords:
+            if _has_phrase(text_n, keyword):
+                matched_keywords.append(keyword)
+
+    action = _extract_action(text_n)
+    has_command_starter = _has_command_starter(text_n)
+    has_command_tail = _has_command_tail(text_n)
+    learned_action_info = parse_learned_action_reference(text)
+    is_information_question = _looks_like_information_question(text_n, text)
+    phrase_implied_control = bool(learned_action_info.get("matched_actions"))
+    is_control = bool((action and (has_command_starter or has_command_tail)) or phrase_implied_control)
+    if is_information_question and not phrase_implied_control and not has_command_starter:
+        is_control = False
+
+    return {
+        "normalized_text": text_n,
+        "operation": action,
+        "matched_keywords": list(dict.fromkeys(matched_keywords)),
+        "has_command_starter": has_command_starter,
+        "has_command_tail": has_command_tail,
+        "ambiguous_action": bool(matched_keywords) and action is None and (has_command_starter or has_command_tail),
+        "is_information_question": is_information_question,
+        "is_control_request": is_control,
+        "learned_action_info": learned_action_info,
+    }
 
 
 def _has_command_starter(text_n: str) -> bool:
@@ -287,29 +415,16 @@ def _looks_like_information_question(text_n: str, original_text: str) -> bool:
 
 def detect_control_request(user_text: str) -> Dict[str, Any]:
     """Nhận diện đây có phải câu điều khiển thiết bị hay không."""
-    text_n = normalize_text(user_text)
-    matched_keywords: List[str] = []
-    for keywords in CONTROL_ACTION_SYNONYMS.values():
-        for keyword in keywords:
-            if _has_phrase(text_n, keyword):
-                matched_keywords.append(keyword)
-
-    action = _extract_action(text_n)
-    has_command_starter = _has_command_starter(text_n)
-    has_command_tail = _has_command_tail(text_n)
-    is_information_question = _looks_like_information_question(text_n, user_text)
-    is_control = bool(action and (has_command_starter or has_command_tail))
-    if is_information_question and not has_command_starter:
-        is_control = False
+    parsed = parse_command_semantics(user_text)
     result = {
-        "is_control_request": is_control,
-        "normalized_text": text_n,
-        "matched_keywords": list(dict.fromkeys(matched_keywords)),
-        "action": action,
-        "ambiguous_action": bool(matched_keywords) and action is None and (has_command_starter or has_command_tail),
-        "has_command_starter": has_command_starter,
-        "has_command_tail": has_command_tail,
-        "is_information_question": is_information_question,
+        "is_control_request": parsed.get("is_control_request"),
+        "normalized_text": parsed.get("normalized_text"),
+        "matched_keywords": parsed.get("matched_keywords"),
+        "action": parsed.get("operation"),
+        "ambiguous_action": parsed.get("ambiguous_action"),
+        "has_command_starter": parsed.get("has_command_starter"),
+        "has_command_tail": parsed.get("has_command_tail"),
+        "is_information_question": parsed.get("is_information_question"),
     }
     log_event(source="intent-parser", level="info", message="detect_control_request", payload=result)
     return result
@@ -365,6 +480,29 @@ def _build_action_phrase_candidates() -> List[Dict[str, str]]:
                     }
                 )
 
+            semantic = action_config.get("semantic") or {}
+            operation = str(semantic.get("operation") or "").strip().lower()
+            if operation in {"on", "off"}:
+                action_synonyms = CONTROL_ACTION_SYNONYMS.get(operation, [])
+                device_terms = [device_id, device.get("name") or ""] + list(device.get("aliases") or [])
+                seen_generated: List[str] = []
+                for action_synonym in action_synonyms:
+                    action_text = normalize_text(action_synonym)
+                    for device_term in device_terms:
+                        device_text = normalize_text(device_term)
+                        generated_phrase = f"{action_text} {device_text}".strip()
+                        if not device_text or generated_phrase in seen_generated:
+                            continue
+                        seen_generated.append(generated_phrase)
+                        candidates.append(
+                            {
+                                "device_id": device_id,
+                                "action": str(action_key or "").strip(),
+                                "phrase": generated_phrase,
+                                "display_name": display_name,
+                            }
+                        )
+
     candidates.sort(key=lambda item: len(item["phrase"]), reverse=True)
     return candidates
 
@@ -372,14 +510,22 @@ def _build_action_phrase_candidates() -> List[Dict[str, str]]:
 def parse_learned_action_reference(text: str) -> Dict[str, Any]:
     text_n = normalize_text(text)
     matches: List[Dict[str, str]] = []
+    scored_matches: List[Dict[str, Any]] = []
 
     for candidate in _build_action_phrase_candidates():
         if _has_phrase(text_n, candidate["phrase"]):
             matches.append(candidate)
+            continue
+        score = _score_phrase_match(text_n, candidate["phrase"])
+        if score >= 0.78:
+            scored_matches.append({**candidate, "score": score})
 
     if matches:
         best_phrase_length = max(len(item["phrase"]) for item in matches)
         matches = [item for item in matches if len(item["phrase"]) == best_phrase_length]
+    elif scored_matches:
+        best_score = max(float(item["score"]) for item in scored_matches)
+        matches = [item for item in scored_matches if float(item["score"]) >= best_score - 0.06]
 
     deduped: List[Dict[str, str]] = []
     seen_keys: List[str] = []
@@ -438,13 +584,35 @@ def parse_device_reference(text: str) -> Dict[str, Any]:
     """Tìm thiết bị theo id, name, alias trong JSON."""
     text_n = normalize_text(text)
     matches: List[Dict[str, str]] = []
+    scored_by_device: Dict[str, Dict[str, Any]] = {}
 
     for candidate in _build_device_candidates():
         if _has_device_phrase(text_n, candidate["term"]):
             matches.append(candidate)
 
     if not matches:
-        matches = _fallback_generic_device_reference(text_n)
+        for candidate in _build_device_candidates():
+            score = _score_term_match(text_n, candidate["term"])
+            if score < 0.78:
+                continue
+            existing = scored_by_device.get(candidate["device_id"])
+            enriched = {
+                **candidate,
+                "score": score,
+            }
+            if not existing or float(existing.get("score", 0.0)) < score:
+                scored_by_device[candidate["device_id"]] = enriched
+
+        if scored_by_device:
+            ranked = sorted(
+                scored_by_device.values(),
+                key=lambda item: (float(item.get("score", 0.0)), len(item.get("term", ""))),
+                reverse=True,
+            )
+            best_score = float(ranked[0].get("score", 0.0))
+            matches = [item for item in ranked if float(item.get("score", 0.0)) >= best_score - 0.06]
+        else:
+            matches = _fallback_generic_device_reference(text_n)
 
     seen_devices: List[str] = []
     resolved_matches: List[Dict[str, str]] = []
@@ -465,82 +633,36 @@ def parse_device_reference(text: str) -> Dict[str, Any]:
 
 
 def parse_intent(text: str) -> Optional[Intent]:
-    """Parse intent local từ device map JSON, không hardcode alias."""
+    """Parse intent local theo pipeline parser -> semantic resolver."""
     if not text:
         return None
 
-    text_n = normalize_text(text)
-    learned_action_info = parse_learned_action_reference(text)
-    if learned_action_info.get("device_id") and learned_action_info.get("action") and not learned_action_info.get("ambiguous"):
-        intent = {
-            "device": learned_action_info.get("device_id"),
-            "action": learned_action_info.get("action"),
-        }
-        log_event(
-            source="intent-parser",
-            level="success",
-            message="Parse local intent thành công từ câu mẫu đã học",
-            payload=intent,
-        )
-        return intent
+    from ai.semantic_resolver import resolve_device_command
 
-    control_info = detect_control_request(text)
-    device_info = parse_device_reference(text)
-    action = control_info.get("action")
-    inferred_embedded_command = bool(
-        not control_info.get("is_control_request")
-        and action
-        and not control_info.get("ambiguous_action")
-        and not control_info.get("is_information_question")
-        and device_info.get("device_id")
-    )
-
-    if not control_info.get("is_control_request") and not inferred_embedded_command:
+    resolved = resolve_device_command(text)
+    intent = resolved.get("intent")
+    if resolved.get("status") != "resolved" or not intent:
         return None
 
-    if control_info.get("ambiguous_action"):
-        log_event(
-            source="intent-parser",
-            level="warning",
-            message="Phát hiện câu điều khiển nhưng action mơ hồ",
-            payload=control_info,
-        )
-        return None
-
-    if device_info.get("ambiguous"):
-        log_event(
-            source="intent-parser",
-            level="warning",
-            message="Phát hiện nhiều thiết bị khớp trong cùng câu lệnh",
-            payload=device_info,
-        )
-        return None
-
-    device_id = device_info.get("device_id")
-    if not device_id or not action:
-        log_event(
-            source="intent-parser",
-            level="warning",
-            message="Không parse được device/action từ câu điều khiển",
-            payload={"control_info": control_info, "device_info": device_info},
-        )
-        return None
-
-    resolved_action = _resolve_contextual_action(device_id, action, text_n)
-    intent = {"device": device_id, "action": resolved_action}
     log_event(
         source="intent-parser",
         level="success",
-        message="Parse local intent thành công",
-        payload={**intent, "inferred_embedded_command": inferred_embedded_command},
+        message="Parse local intent thanh cong qua semantic resolver",
+        payload={"intent": intent, "resolver_status": resolved.get("status")},
     )
-    return intent
+    return {
+        "device": intent.get("device"),
+        "action": intent.get("action"),
+    }
 
 
 def parse_local_device_intent(text: str) -> Optional[Dict[str, Any]]:
     """Trả kết quả command local nếu parse thành công hoàn toàn."""
-    intent = parse_intent(text)
-    if not intent:
+    from ai.semantic_resolver import resolve_device_command
+
+    resolved = resolve_device_command(text)
+    intent = resolved.get("intent")
+    if resolved.get("status") != "resolved" or not intent:
         return None
 
     return {
@@ -548,6 +670,7 @@ def parse_local_device_intent(text: str) -> Optional[Dict[str, Any]]:
         "device": intent.get("device"),
         "action": intent.get("action"),
         "reply": None,
+        "resolver": resolved,
     }
 
 
