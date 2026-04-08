@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <title>Điều khiển thiết bị | Smart Home AI Chat</title>
+    <meta name="theme-color" content="#F3EEF9" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Smart Home" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="description" content="Trang điều khiển thiết bị riêng cho Smart Home." />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/static/pwa/icon-192.png" />
+    <link rel="icon" type="image/svg+xml" href="/static/pwa/icon.svg" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/static/pwa/apple-touch-icon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css" />
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+</head>
+
+<body class="app-preboot device-control-screen {% if not initial_authenticated %}auth-locked{% endif %}"
+    data-page="device-control">
+    <div class="app-preboot-loader" aria-hidden="true">
+        <div class="app-preboot-spinner"></div>
+    </div>
+    <div class="bg-orb orb-1"></div>
+    <div class="bg-orb orb-2"></div>
+    <div class="bg-grid"></div>
+
+    <div id="auth-overlay" class="auth-overlay {% if not initial_authenticated %}is-visible{% endif %}"
+        aria-hidden="{% if initial_authenticated %}true{% else %}false{% endif %}">
+        <div class="auth-backdrop"></div>
+        <section class="auth-modal glass-card" role="dialog" aria-modal="true" aria-labelledby="auth-title">
+            <div class="auth-modal-top">
+                <p class="eyebrow">Secure Access</p>
+                <div class="auth-chip">
+                    <span class="auth-chip-dot"></span>
+                    <span id="auth-chip-text">Đăng nhập để mở quyền điều khiển</span>
+                </div>
+            </div>
+            <h1 id="auth-title" class="auth-title">Smart Home</h1>
+            <div class="auth-mode-switch" role="tablist" aria-label="Chế độ xác thực">
+                <button id="auth-login-tab" type="button" class="auth-mode-btn is-active" data-auth-mode="login"
+                    role="tab" aria-selected="true">
+                    Đăng nhập
+                </button>
+                <button id="auth-register-tab" type="button" class="auth-mode-btn" data-auth-mode="register" role="tab"
+                    aria-selected="false">
+                    Đăng ký
+                </button>
+            </div>
+
+            <form id="auth-form" class="auth-form" autocomplete="on">
+                <label class="auth-field" for="auth-email">
+                    <span>Email</span>
+                    <input id="auth-email" name="email" type="email" placeholder="you@gmail.com" required />
+                </label>
+                <label class="auth-field" for="auth-password">
+                    <span>Mật khẩu</span>
+                    <input id="auth-password" name="password" type="password" placeholder="Nhập mật khẩu của bạn"
+                        required />
+                </label>
+                <label id="auth-jetson-field" class="auth-field is-hidden" for="auth-jetson-id">
+                    <span>Mã Jetson</span>
+                    <input id="auth-jetson-id" name="jetson_id" type="text" placeholder="Ví dụ: JETSON_001" />
+                </label>
+                <button id="auth-submit-btn" type="submit" class="primary-btn auth-submit-btn">Đăng nhập</button>
+                <div id="auth-error" class="auth-error" aria-live="polite"></div>
+            </form>
+        </section>
+    </div>
+
+    <main id="app-shell" class="app-shell device-control-shell {% if not initial_authenticated %}is-locked{% endif %}"
+        aria-hidden="{% if initial_authenticated %}false{% else %}true{% endif %}">
+        <section id="device-control-page" class="device-control-page glass-card" aria-hidden="false">
+            <header class="device-control-header">
+                <button id="device-control-back-btn" type="button"
+                    class="primary-btn secondary-tone device-control-back-btn">
+                    Quay lại
+                </button>
+                <div class="device-control-title-wrap">
+                    <p class="section-kicker">Điều khiển thiết bị</p>
+                    <h2 id="device-control-title">{{ initial_device_name or "Thiết bị" }}</h2>
+                    <p id="device-control-subtitle" class="device-control-subtitle">{% if initial_device_name %}Đang tải
+                        điều khiển cho {{ initial_device_name }}.{% else %}Chọn chức năng để điều khiển thiết bị.{%
+                        endif %}</p>
+                </div>
+            </header>
+
+            <div id="device-control-status-banner" class="device-status-banner">
+                <div>
+                    <span class="info-label">Trạng thái hiện tại</span>
+                    <div class="device-status-text">
+                        <span class="device-status-dot"></span>
+                        <strong id="device-control-status-text">Chưa rõ</strong>
+                    </div>
+                </div>
+            </div>
+
+            <div id="device-control-functions" class="device-control-functions" aria-live="polite"></div>
+
+            <button id="add-function-trigger-btn" type="button" class="device-add-function-btn">
+                Add function buttons
+            </button>
+        </section>
+    </main>
+
+    <section id="chatbot-popup" class="chatbot-popup is-hidden glass-card" aria-hidden="true">
+        <header class="chatbot-popup-header">
+            <div>
+                <p class="section-kicker">SmartHome AI</p>
+            </div>
+        </header>
+
+        <div id="chat-status-banner" class="chat-status-banner">
+            <span class="chat-status-dot"></span>
+            <span id="chat-status-text"> Nhận lệnh bằng giọng nói</span>
+        </div>
+
+        <div id="chat-messages" class="chat-messages" aria-live="polite"></div>
+
+        <form id="chat-form" class="chat-composer chatbot-composer" autocomplete="off">
+            <div class="voice-helper">
+                <span class="voice-helper-label">Voice Assistant</span>
+                <strong>Chạm micro để nói</strong>
+            </div>
+            <div class="chat-actions">
+                <button id="mic-btn" type="button" class="icon-btn large-mic-btn" aria-label="Bắt đầu ghi âm">
+                    <span class="icon-btn-symbol">🎙️</span>
+                </button>
+            </div>
+        </form>
+    </section>
+
+    <button id="chatbot-fab" class="chatbot-fab" type="button" aria-label="Mở chatbot" aria-controls="chatbot-popup"
+        aria-expanded="false">
+        <span class="chatbot-fab-icon" aria-hidden="true">💬</span>
+    </button>
+
+    <div id="add-function-button-modal" class="password-modal" aria-hidden="true">
+        <div id="add-function-button-backdrop" class="password-modal-backdrop"></div>
+        <section class="password-modal-card glass-card" role="dialog" aria-modal="true"
+            aria-labelledby="add-function-button-modal-title">
+            <div class="password-modal-head">
+                <div>
+                    <p class="eyebrow">Device Function</p>
+                    <h2 id="add-function-button-modal-title">Thêm function button</h2>
+                </div>
+                <button id="add-function-button-close-btn" type="button" class="password-close-btn" aria-label="Đóng">
+                    ×
+                </button>
+            </div>
+            <form id="add-function-button-form" class="password-form" autocomplete="off">
+                <label class="auth-field" for="add-function-button-name-input">
+                    <span>Tên button</span>
+                    <input id="add-function-button-name-input" name="function_name" type="text"
+                        placeholder="Ví dụ: Tăng sáng" maxlength="120" required />
+                </label>
+                <div class="ir-learn-form-actions">
+                    <button id="add-function-button-submit-btn" type="submit" class="primary-btn">Lưu button</button>
+                    <button id="add-function-button-cancel-btn" type="button"
+                        class="primary-btn secondary-tone">Hủy</button>
+                </div>
+                <div id="add-function-button-status" class="auth-error" aria-live="polite"></div>
+            </form>
+        </section>
+    </div>
+
+    <script>
+        window.__SMART_HOME_BOOTSTRAP__ = {
+            authenticated: {{ "true" if initial_authenticated else "false" }},
+        jetson_id: { { initial_jetson_id | tojson } },
+        device_id: { { initial_device_id | tojson } },
+        device_name: { { initial_device_name | tojson } }
+        };
+    </script>
+    <script>
+        (() => {
+            const fab = document.getElementById("chatbot-fab");
+            const popup = document.getElementById("chatbot-popup");
+
+            if (!fab || !popup) {
+                return;
+            }
+
+            const syncFabState = () => {
+                const isHidden = popup.classList.contains("is-hidden");
+                popup.setAttribute("aria-hidden", String(isHidden));
+                fab.setAttribute("aria-expanded", String(!isHidden));
+                fab.setAttribute("aria-label", isHidden ? "Mở chatbot" : "Ẩn chatbot");
+            };
+
+            fab.addEventListener("click", () => {
+                popup.classList.toggle("is-hidden");
+                syncFabState();
+            });
+
+            syncFabState();
+        })();
+    </script>
+    <script type="module" src="/static/app.js"></script>
+</body>
+
+</html>

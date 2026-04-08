@@ -3,7 +3,7 @@ import time
 from datetime import timedelta
 from queue import Empty, Full, Queue
 
-from flask import Flask, render_template, send_from_directory, session
+from flask import Flask, render_template, request, send_from_directory, session
 from flask_socketio import SocketIO, disconnect
 
 from api.routes import api_bp
@@ -38,7 +38,21 @@ def create_app():
 
     @app.get("/")
     def index():
-        return render_template("index.html")
+        return render_template(
+            "index.html",
+            initial_authenticated=bool(session.get("authenticated")),
+            initial_jetson_id=str(session.get("jetson_id") or "").strip(),
+        )
+
+    @app.get("/device-control")
+    def device_control():
+        return render_template(
+            "device-control.html",
+            initial_authenticated=bool(session.get("authenticated")),
+            initial_jetson_id=str(session.get("jetson_id") or "").strip(),
+            initial_device_id=str(request.args.get("device_id") or "").strip(),
+            initial_device_name=str(request.args.get("device_name") or "").strip(),
+        )
 
     @app.get("/manifest.webmanifest")
     def manifest():
@@ -80,7 +94,6 @@ def create_app():
         devices = []
         try:
             from api.device_api import list_devices
-
             devices = list_devices()
         except Exception as exc:
             log_event(source="socketio", level="error", message="Khong tao duoc snapshot khi connect", payload={"error": repr(exc)})
@@ -164,10 +177,10 @@ if __name__ == "__main__":
     except Exception as exc:
         log_event(source="bootstrap", level="error", message="Không in được danh sách microphone", payload={"error": repr(exc)})
 
-    try:
-        speak_text("Hệ thống smart home đã khởi động.")
-    except Exception as exc:
-        log_event(source="bootstrap", level="error", message="TTS test khi khởi động thất bại", payload={"error": repr(exc)})
+    # try:
+    #     speak_text("Hệ thống smart home đã khởi động.")
+    # except Exception as exc:
+    #     log_event(source="bootstrap", level="error", message="TTS test khi khởi động thất bại", payload={"error": repr(exc)})
 
     listener_thread = threading.Thread(
         target=run_jetson_voice_listener,

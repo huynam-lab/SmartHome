@@ -3,10 +3,13 @@
 
 <head>
     <meta charset="UTF-8" />
-    <meta name="viewport"
-        content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
     <title>Smart Home AI Chat</title>
-    <meta name="theme-color" content="#BFB8DA" />
+    <meta name="theme-color" content="#F3EEF9" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Smart Home" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="description"
         content="Điều khiển hệ thống smart home qua AI chat và giọng nói trên giao diện web cài được như ứng dụng." />
     <link rel="manifest" href="/manifest.webmanifest" />
@@ -20,12 +23,16 @@
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 </head>
 
-<body class="auth-locked">
+<body class="app-preboot {% if not initial_authenticated %}auth-locked{% endif %}">
+    <div class="app-preboot-loader" aria-hidden="true">
+        <div class="app-preboot-spinner"></div>
+    </div>
     <div class="bg-orb orb-1"></div>
     <div class="bg-orb orb-2"></div>
     <div class="bg-grid"></div>
 
-    <div id="auth-overlay" class="auth-overlay is-visible" aria-hidden="false">
+    <div id="auth-overlay" class="auth-overlay {% if not initial_authenticated %}is-visible{% endif %}"
+        aria-hidden="{% if initial_authenticated %}true{% else %}false{% endif %}">
         <div class="auth-backdrop"></div>
         <section class="auth-modal glass-card" role="dialog" aria-modal="true" aria-labelledby="auth-title">
             <div class="auth-modal-top">
@@ -67,7 +74,8 @@
         </section>
     </div>
 
-    <main id="app-shell" class="app-shell chat-layout is-locked" aria-hidden="true">
+    <main id="app-shell" class="app-shell chat-layout {% if not initial_authenticated %}is-locked{% endif %}"
+        aria-hidden="{% if initial_authenticated %}false{% else %}true{% endif %}">
         <section class="hero-panel glass-card" style="display: none;">
             <div class="hero-copy" style="display: none;">
                 <p class="eyebrow">Smart Home AI</p>
@@ -102,8 +110,7 @@
             <section class="chat-panel glass-card">
                 <header class="chat-panel-header">
                     <div>
-                        <p class="section-kicker">AI Chat </p>
-                        <p class="section-desc"></p>
+                        <p class="section-kicker">Device Center</p>
                     </div>
                     <div class="topbar-actions">
                         <button id="reload-btn" type="button" class="primary-btn secondary-tone">Đồng bộ thiết
@@ -138,43 +145,61 @@
                     </div>
                 </header>
 
-                <div id="chat-status-banner" class="chat-status-banner">
-                    <span class="chat-status-dot"></span>
-                    <span id="chat-status-text">Sẵn sàng nhận lệnh bằng text hoặc giọng nói</span>
-                </div>
-
-                <div id="chat-messages" class="chat-messages" aria-live="polite"></div>
-
-                <form id="chat-form" class="chat-composer" autocomplete="off">
-                    <div class="chat-actions">
-                        <button id="mic-btn" type="button" class="icon-btn" aria-label="Bắt đầu ghi âm">
-                            <span class="icon-btn-symbol">🎙️</span>
-                        </button>
-                    </div>
-                </form>
-            </section>
-
-            <aside class="devices-panel glass-card">
-                <div class="section-head">
-                    <div>
-                        <p class="section-kicker">Device Center</p>
-                    </div>
-                    <div class="device-top-actions">
-                        <div class="device-summary-card device-stat-card">
-                            <span class="device-top-label">Thiết bị</span>
-                            <strong id="summary-text">Đang tải dữ liệu...</strong>
-                            <small class="summary-caption">Khả dụng trong hệ thống</small>
+                <aside class="devices-panel embedded-devices-panel">
+                    <div class="section-head">
+                        <div>
+                            <p class="section-kicker">Thiết bị</p>
+                        </div>
+                        <div class="device-top-actions">
+                            <div class="device-summary-card device-stat-card">
+                                <span class="device-top-label">Thiết bị</span>
+                                <strong id="summary-text">Đang tải dữ liệu...</strong>
+                                <small class="summary-caption">Khả dụng trong hệ thống</small>
+                            </div>
                         </div>
                     </div>
-                </div>
-                <div class="device-list-shell outer-device-section">
-                    <div class="device-scroll-fade device-scroll-fade-left" aria-hidden="true"></div>
-                    <div id="device-list" class="device-list device-scroll-list"></div>
-                    <div class="device-scroll-fade device-scroll-fade-right" aria-hidden="true"></div>
-                </div>
-            </aside>
+                    <div class="device-list-shell outer-device-section">
+                        <div class="device-scroll-fade device-scroll-fade-left" aria-hidden="true"></div>
+                        <div id="device-list" class="device-list device-scroll-list"></div>
+                        <div class="device-scroll-fade device-scroll-fade-right" aria-hidden="true"></div>
+                    </div>
+                </aside>
+
+            </section>
         </section>
     </main>
+
+    <section id="chatbot-popup" class="chatbot-popup is-hidden glass-card" aria-hidden="true">
+        <header class="chatbot-popup-header">
+            <div>
+                <p class="section-kicker">SmartHome AI</p>
+            </div>
+        </header>
+
+        <div id="chat-status-banner" class="chat-status-banner">
+            <span class="chat-status-dot"></span>
+            <span id="chat-status-text"> Nhận lệnh bằng giọng nói</span>
+        </div>
+
+        <div id="chat-messages" class="chat-messages" aria-live="polite"></div>
+
+        <form id="chat-form" class="chat-composer chatbot-composer" autocomplete="off">
+            <div class="voice-helper">
+                <span class="voice-helper-label">Voice Assistant</span>
+                <strong>Chạm micro để nói</strong>
+            </div>
+            <div class="chat-actions">
+                <button id="mic-btn" type="button" class="icon-btn large-mic-btn" aria-label="Bắt đầu ghi âm">
+                    <span class="icon-btn-symbol">🎙️</span>
+                </button>
+            </div>
+        </form>
+    </section>
+
+    <button id="chatbot-fab" class="chatbot-fab" type="button" aria-label="Mở chatbot" aria-controls="chatbot-popup"
+        aria-expanded="false">
+        <span class="chatbot-fab-icon" aria-hidden="true">💬</span>
+    </button>
 
     <div id="password-modal" class="password-modal" aria-hidden="true">
         <div id="password-backdrop" class="password-modal-backdrop"></div>
@@ -318,7 +343,66 @@
         </section>
     </div>
 
-    <script src="/static/app.js"></script>
+    <div id="add-function-button-modal" class="password-modal" aria-hidden="true">
+        <div id="add-function-button-backdrop" class="password-modal-backdrop"></div>
+        <section class="password-modal-card glass-card" role="dialog" aria-modal="true"
+            aria-labelledby="add-function-button-modal-title">
+            <div class="password-modal-head">
+                <div>
+                    <p class="eyebrow">Device Function</p>
+                    <h2 id="add-function-button-modal-title">Thêm function button</h2>
+                </div>
+                <button id="add-function-button-close-btn" type="button" class="password-close-btn" aria-label="Đóng">
+                    ×
+                </button>
+            </div>
+            <form id="add-function-button-form" class="password-form" autocomplete="off">
+                <label class="auth-field" for="add-function-button-name-input">
+                    <span>Tên button</span>
+                    <input id="add-function-button-name-input" name="function_name" type="text"
+                        placeholder="Ví dụ: Tăng sáng" maxlength="120" required />
+                </label>
+                <div class="ir-learn-form-actions">
+                    <button id="add-function-button-submit-btn" type="submit" class="primary-btn">Lưu button</button>
+                    <button id="add-function-button-cancel-btn" type="button"
+                        class="primary-btn secondary-tone">Hủy</button>
+                </div>
+                <div id="add-function-button-status" class="auth-error" aria-live="polite"></div>
+            </form>
+        </section>
+    </div>
+
+    <script>
+        window.__SMART_HOME_BOOTSTRAP__ = {
+            authenticated: {{ "true" if initial_authenticated else "false" }},
+        jetson_id: { { initial_jetson_id | tojson } }
+        };
+    </script>
+    <script>
+        (() => {
+            const fab = document.getElementById("chatbot-fab");
+            const popup = document.getElementById("chatbot-popup");
+
+            if (!fab || !popup) {
+                return;
+            }
+
+            const syncFabState = () => {
+                const isHidden = popup.classList.contains("is-hidden");
+                popup.setAttribute("aria-hidden", String(isHidden));
+                fab.setAttribute("aria-expanded", String(!isHidden));
+                fab.setAttribute("aria-label", isHidden ? "Mở chatbot" : "Ẩn chatbot");
+            };
+
+            fab.addEventListener("click", () => {
+                popup.classList.toggle("is-hidden");
+                syncFabState();
+            });
+
+            syncFabState();
+        })();
+    </script>
+    <script type="module" src="/static/app.js"></script>
 </body>
 
 </html>

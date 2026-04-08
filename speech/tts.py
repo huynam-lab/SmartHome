@@ -29,11 +29,16 @@ _DEFAULT_PLAYER_CANDIDATES = [
     ["ffplay", "-nodisp", "-autoexit", "-loglevel", "error"],
     ["mpv", "--really-quiet"],
 ]
+_ESPEAK_BIN = shutil.which("espeak")
 
 
 def _log_tts(level: str, message: str, payload: Optional[Dict] = None) -> None:
-    print(f"[TTS] {message}")
-    log_event(source="tts", level=level, message=message, payload=payload or {})
+    safe_payload = payload or {}
+    if safe_payload:
+        print(f"[TTS] {message} | {safe_payload}")
+    else:
+        print(f"[TTS] {message}")
+    log_event(source="tts", level=level, message=message, payload=safe_payload)
 
 
 async def _synthesize_audio(text: str, output_path: str) -> None:
@@ -88,6 +93,31 @@ def _play_audio(audio_path: str) -> Dict[str, object]:
     return {"success": False, "message": "Phát âm thanh thất bại", **final_payload}
 
 
+def _speak_with_espeak(text: str) -> bool:
+    if not _ESPEAK_BIN:
+        _log_tts("warning", "espeak unavailable for fallback", {})
+        return False
+    command = [_ESPEAK_BIN, "-v", "vi", "-s", "150", text]
+    _log_tts("info", "fallback espeak command", {"command": command})
+    try:
+        result = subprocess.run(command, check=False, capture_output=True, text=True, timeout=20)
+    except Exception as exc:
+        _log_tts("error", "fallback espeak failed", {"error": repr(exc)})
+        return False
+
+    payload = {
+        "command": command,
+        "returncode": result.returncode,
+        "stdout": (result.stdout or "").strip(),
+        "stderr": (result.stderr or "").strip(),
+    }
+    if result.returncode == 0:
+        _log_tts("success", "fallback espeak success", payload)
+        return True
+    _log_tts("error", "fallback espeak non-zero", payload)
+    return False
+
+
 def speak_text(text: str) -> bool:
     """Public TTS entrypoint, luôn log rõ từng bước để debug."""
     if not text:
@@ -127,7 +157,7 @@ def speak_text(text: str) -> bool:
                 _log_tts("info", "audio file created", {"audio_path": temp_file})
             except Exception as exc:
                 _log_tts("error", "synthesis failed", {"text": text, "audio_path": temp_file, "error": repr(exc)})
-                return False
+                return _speak_with_espeak(text)
 
             if not os.path.exists(temp_file):
                 _log_tts("error", "audio file missing after synthesis", {"audio_path": temp_file})

@@ -1,11 +1,20 @@
-const APP_CACHE = "smart-home-app-v1";
-const RUNTIME_CACHE = "smart-home-runtime-v1";
+const APP_CACHE = "smart-home-app-v3";
+const RUNTIME_CACHE = "smart-home-runtime-v3";
 const APP_SHELL_URLS = [
     "/",
     "/offline",
     "/manifest.webmanifest",
     "/static/style.css",
     "/static/app.js",
+    "/static/app/api.js",
+    "/static/app/auth.js",
+    "/static/app/chat.js",
+    "/static/app/core.js",
+    "/static/app/devices.js",
+    "/static/app/main.js",
+    "/static/app/realtime.js",
+    "/static/app/ui.js",
+    "/static/app/utils.js",
     "/static/pwa/icon-192.png",
     "/static/pwa/icon-512.png",
     "/static/pwa/icon.svg",
