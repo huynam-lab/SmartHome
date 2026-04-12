@@ -34,10 +34,11 @@ _load_dotenv_if_present()
 IR_PACKET_DIR = os.path.join(BASE_DIR, "data", "ir_packets")
 RF_PACKET_DIR = os.path.join(BASE_DIR, "data", "rf_packets")
 DEVICE_MAP_FILE = os.path.join(BASE_DIR, "data", "device_map.json")
+DEVICE_SCHEDULE_FILE = os.path.join(BASE_DIR, "data", "device_schedules.json")
 DEVICE_TEMPLATE_FILE = os.path.join(BASE_DIR, "data", "device_template.json")
 ENABLE_DEVICE_MAP_BACKUP = os.getenv("ENABLE_DEVICE_MAP_BACKUP", "0") == "1"
 
-DISCOVER_TIMEOUT = 8
+DISCOVER_TIMEOUT = float(os.getenv("DISCOVER_TIMEOUT", "2"))
 LEARN_WAIT_SECONDS = 15
 BROADLINK_CACHE_TTL_SECONDS = float(os.getenv("BROADLINK_CACHE_TTL_SECONDS", "20"))
 BROADLINK_DEVICE_IP = os.getenv("BROADLINK_DEVICE_IP", "").strip()
@@ -49,18 +50,19 @@ EXIT_WORDS = [
 ]
 
 WAKE_WORDS = [
-    "ly ly oi",
-    "ly ly ơi",
-    "lyly oi",
-    "lyly ơi",
+    "li ly oi",
+    "li ly ơi",
+    "lily oi",
+    "lily ơi",
 ]
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").replace("\r", "").replace("\n", "").strip()
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-GEMINI_TIMEOUT_SECONDS = int(os.getenv("GEMINI_TIMEOUT_SECONDS", "15"))
-GEMINI_RPM_LIMIT = int(os.getenv("GEMINI_RPM_LIMIT", "5"))
+GEMINI_TIMEOUT_SECONDS = int(os.getenv("GEMINI_TIMEOUT_SECONDS", "8"))
+GEMINI_RPM_LIMIT = int(os.getenv("GEMINI_RPM_LIMIT", "20"))
 GEMINI_CLASSIFY_MAX_TOKENS = int(os.getenv("GEMINI_CLASSIFY_MAX_TOKENS", "120"))
-GEMINI_CHAT_MAX_TOKENS = int(os.getenv("GEMINI_CHAT_MAX_TOKENS", "360"))
+GEMINI_CHAT_MAX_TOKENS = int(os.getenv("GEMINI_CHAT_MAX_TOKENS", "700"))
+GEMINI_CHAT_RETRY_ENABLED = os.getenv("GEMINI_CHAT_RETRY_ENABLED", "1") == "1"
 GEMINI_UNAVAILABLE_TEXT = os.getenv(
     "GEMINI_UNAVAILABLE_TEXT",
     "Em chưa trả lời được bằng Gemini lúc này. Anh/chị thử lại giúp em ạ.",
@@ -91,7 +93,7 @@ MIC_PREFERRED_KEYWORDS = tuple(
 WAKE_REPLY_TEXT = os.getenv("WAKE_REPLY_TEXT", "Vâng , có em đây ")
 ENABLE_TTS = os.getenv("ENABLE_TTS", "1") == "1"
 TTS_LANGUAGE_CODE = os.getenv("TTS_LANGUAGE_CODE", "vi-VN")
-TTS_VOICE_NAME = os.getenv("TTS_VOICE_NAME", "vi-VN-Neural2-A")
+TTS_VOICE_NAME = os.getenv("TTS_VOICE_NAME", "vi-VN-HoaiMyNeural")
 TTS_SPEAKING_RATE = float(os.getenv("TTS_SPEAKING_RATE", "0.85"))
 TTS_PITCH = float(os.getenv("TTS_PITCH", "0.0"))
 TTS_VOLUME_GAIN_DB = float(os.getenv("TTS_VOLUME_GAIN_DB", "0.0"))

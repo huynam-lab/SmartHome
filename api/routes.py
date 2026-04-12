@@ -1,5 +1,6 @@
 import os
 import json
+import secrets
 import subprocess
 import sys
 from functools import wraps
@@ -11,9 +12,11 @@ from api.auth_service import change_user_password, register_user_account, verify
 from api.device_api import control_device, list_devices
 from config import CURRENT_JETSON_ID
 from controller.command_service import process_text_command
+from controller.device_registry import get_registry
 from core.device_state_store import build_devices_snapshot, remove_device_state
 from core.event_bus import list_events, log_event
-from services.device_learning_service import delete_device, save_empty_device, save_learned_device
+from services.device_learning_service import delete_device, delete_device_action, save_empty_device, save_learned_device, update_device_action
+from services.device_schedule_service import create_device_schedule, delete_device_schedule, list_device_schedules
 from services.device_template_service import get_device_template, list_device_templates
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
@@ -111,6 +114,27 @@ def _validate_command_filename(filename: str, signal_type: str) -> str:
     return safe_filename
 
 
+def _generate_unique_command_filename(signal_type: str) -> str:
+    safe_signal_type = _normalize_signal_type(signal_type)
+    if safe_signal_type == "auto":
+        safe_signal_type = "ir"
+
+    extension = ".json" if safe_signal_type == "rf" else ".bin"
+    packet_dirs = [
+        ROOT_DIR / "data" / "ir_packets",
+        ROOT_DIR / "data" / "rf_packets",
+    ]
+    for packet_dir in packet_dirs:
+        packet_dir.mkdir(parents=True, exist_ok=True)
+
+    for _ in range(64):
+        candidate = f"{safe_signal_type}_{secrets.token_hex(8)}{extension}"
+        if not any((packet_dir / candidate).exists() for packet_dir in packet_dirs):
+            return candidate
+
+    raise ValueError("Không thể tạo tên file lệnh duy nhất. Hãy thử lại.")
+
+
 def _normalize_signal_type(signal_type: str) -> str:
     normalized = str(signal_type or "auto").strip().lower()
     if normalized not in {"auto", "ir", "rf"}:
@@ -131,7 +155,7 @@ def _normalize_rf_frequency(rf_frequency):
 
 
 def run_ir_learn_script(
-    filename: str = "ir_learned.bin",
+    filename: str = "",
     device_name: str = "",
     signal_type: str = "ir",
     press_mode: str = "tap",
@@ -140,7 +164,7 @@ def run_ir_learn_script(
     safe_signal_type = _normalize_signal_type(signal_type)
     if safe_signal_type == "auto":
         safe_signal_type = "ir"
-    safe_filename = _validate_command_filename(filename, safe_signal_type)
+    safe_filename = _validate_command_filename(filename, safe_signal_type) if str(filename or "").strip() else _generate_unique_command_filename(safe_signal_type)
     safe_device_name = str(device_name or "").strip()
     safe_rf_frequency = _normalize_rf_frequency(rf_frequency) if safe_signal_type == "rf" else None
     module_name = "devices.broadlink.rf_learn" if safe_signal_type == "rf" else "devices.broadlink.ir_learn"
@@ -311,6 +335,152 @@ def delete_device_by_id(device_id: str):
     return jsonify(result), 200
 
 
+@api_bp.delete("/devices/<device_id>/actions/<path:action_key>")
+@require_auth
+def delete_device_action_by_key(device_id: str, action_key: str):
+    try:
+        result = delete_device_action(
+            device_id=device_id,
+            action_key=action_key,
+            device_map_file=str(DEVICE_MAP_PATH),
+        )
+    except ValueError as error:
+        return jsonify({
+            "ok": False,
+            "message": str(error),
+        }), 404
+    except Exception as error:
+        return jsonify({
+            "ok": False,
+            "message": f"Không xóa được action thiết bị: {error}",
+        }), 500
+
+    build_devices_snapshot(list_devices())
+    return jsonify(result), 200
+
+
+@api_bp.patch("/devices/<device_id>/actions/<path:action_key>")
+@require_auth
+def patch_device_action_by_key(device_id: str, action_key: str):
+    payload = request.get_json(silent=True) or {}
+    action_payload = payload.get("action") or {}
+
+    try:
+        result = update_device_action(
+            device_id=device_id,
+            action_key=action_key,
+            action_payload=action_payload,
+            device_map_file=str(DEVICE_MAP_PATH),
+        )
+    except ValueError as error:
+        return jsonify({
+            "ok": False,
+            "message": str(error),
+        }), 400
+    except Exception as error:
+        return jsonify({
+            "ok": False,
+            "message": f"Không cập nhật được action thiết bị: {error}",
+        }), 500
+
+    build_devices_snapshot(list_devices())
+    return jsonify(result), 200
+
+
+@api_bp.get("/devices/<device_id>/schedules")
+@require_auth
+def get_device_schedules(device_id: str):
+    registry = get_registry()
+    normalized_device = registry.normalize_device_id(device_id)
+    if not registry.get_device(normalized_device):
+        return jsonify({
+            "ok": False,
+            "message": f"Không tìm thấy thiết bị '{device_id}'.",
+        }), 404
+
+    schedules = list_device_schedules(normalized_device)
+    return jsonify({
+        "ok": True,
+        "device_id": normalized_device,
+        "schedules": schedules,
+    }), 200
+
+
+@api_bp.post("/devices/<device_id>/schedules")
+@require_auth
+def post_device_schedule(device_id: str):
+    payload = request.get_json(silent=True) or {}
+    registry = get_registry()
+    normalized_device = registry.normalize_device_id(device_id)
+    device_config = registry.get_device(normalized_device)
+    if not device_config:
+        return jsonify({
+            "ok": False,
+            "message": f"Không tìm thấy thiết bị '{device_id}'.",
+        }), 404
+
+    action = str(payload.get("action") or "").strip().lower()
+    resolved_action = registry.resolve_action_config(normalized_device, action)
+    normalized_action = str(resolved_action.get("action") or action).strip().lower()
+    if normalized_action not in {"on", "off", "power.on", "power.off"}:
+        return jsonify({
+            "ok": False,
+            "message": "Lịch hẹn hiện chỉ hỗ trợ bật hoặc tắt thiết bị.",
+        }), 400
+
+    if normalized_action not in (device_config.get("actions") or {}):
+        return jsonify({
+            "ok": False,
+            "message": f"Thiết bị '{device_config.get('name') or normalized_device}' chưa có action '{normalized_action}'.",
+        }), 400
+
+    try:
+        schedule = create_device_schedule(
+            device_id=normalized_device,
+            action=normalized_action,
+            hour=payload.get("hour"),
+            minute=payload.get("minute"),
+            repeat=payload.get("repeat"),
+        )
+    except ValueError as error:
+        return jsonify({
+            "ok": False,
+            "message": str(error),
+        }), 400
+
+    return jsonify({
+        "ok": True,
+        "message": "Đã tạo lịch hẹn thiết bị.",
+        "schedule": schedule,
+    }), 201
+
+
+@api_bp.delete("/devices/<device_id>/schedules/<schedule_id>")
+@require_auth
+def delete_device_schedule_by_id(device_id: str, schedule_id: str):
+    registry = get_registry()
+    normalized_device = registry.normalize_device_id(device_id)
+    if not registry.get_device(normalized_device):
+        return jsonify({
+            "ok": False,
+            "message": f"Không tìm thấy thiết bị '{device_id}'.",
+        }), 404
+
+    try:
+        removed = delete_device_schedule(normalized_device, schedule_id)
+    except ValueError as error:
+        return jsonify({
+            "ok": False,
+            "message": str(error),
+        }), 404
+
+    return jsonify({
+        "ok": True,
+        "message": "Đã xóa lịch hẹn thiết bị.",
+        "schedule": removed,
+    }), 200
+
+
 @api_bp.get("/auth/status")
 def get_auth_status():
     if not session.get("authenticated"):
@@ -437,7 +607,7 @@ def post_device_control():
     device = payload.get("device") or payload.get("device_id")
     action = payload.get("action")
 
-    result = control_device(device=device, action=action)
+    result = control_device(device=device, action=action, include_debug=False)
     status = 200 if result.get("ok") else 400
     return jsonify(result), status
 
@@ -449,7 +619,7 @@ def post_control():
     device = payload.get("device") or payload.get("device_id")
     action = payload.get("action")
 
-    result = control_device(device=device, action=action)
+    result = control_device(device=device, action=action, include_debug=False)
     status = 200 if result.get("ok") else 400
     return jsonify(result), status
 

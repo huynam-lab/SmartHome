@@ -43,6 +43,100 @@ function _buildChatRowHtml(safeRole, normalizedText, ts) {
     `;
 }
 
+function readPersistedChatHistory() {
+    try {
+        const raw = window.sessionStorage.getItem(app.constants.CHAT_HISTORY_STORAGE_KEY);
+        const parsed = raw ? JSON.parse(raw) : [];
+        return Array.isArray(parsed) ? parsed : [];
+    } catch (error) {
+        console.warn("[chat] failed to read persisted history", error);
+        return [];
+    }
+}
+
+function writePersistedChatHistory(messages) {
+    try {
+        window.sessionStorage.setItem(
+            app.constants.CHAT_HISTORY_STORAGE_KEY,
+            JSON.stringify(Array.isArray(messages) ? messages.slice(-app.constants.CHAT_HISTORY_LIMIT) : [])
+        );
+    } catch (error) {
+        console.warn("[chat] failed to persist history", error);
+    }
+}
+
+function persistChatMessage(entry) {
+    const normalizedText = String(entry?.text || "").trim();
+    if (!normalizedText) {
+        return;
+    }
+
+    const safeRole = app.constants.CHAT_ROLE_META[entry?.role] ? entry.role : "system";
+    const ts = Number(entry?.ts) || Date.now();
+    const dedupeKey = buildDedupeKey(
+        safeRole,
+        normalizedText,
+        entry?.messageId || entry?.requestId || entry?.fingerprint || "local"
+    );
+
+    const existing = readPersistedChatHistory();
+    if (existing.some((item) => String(item?.dedupeKey || "") === dedupeKey)) {
+        return;
+    }
+
+    existing.push({
+        role: safeRole,
+        text: normalizedText,
+        ts,
+        isError: Boolean(entry?.isError),
+        messageId: String(entry?.messageId || "").trim(),
+        requestId: String(entry?.requestId || "").trim(),
+        fingerprint: String(entry?.fingerprint || "").trim(),
+        dedupeKey,
+    });
+    writePersistedChatHistory(existing);
+}
+
+function upsertPersistedChatMessage(entry) {
+    const normalizedText = String(entry?.text || "").trim();
+    if (!normalizedText) {
+        return;
+    }
+
+    const safeRole = app.constants.CHAT_ROLE_META[entry?.role] ? entry.role : "system";
+    const ts = Number(entry?.ts) || Date.now();
+    const dedupeKey = buildDedupeKey(
+        safeRole,
+        normalizedText,
+        entry?.messageId || entry?.requestId || entry?.fingerprint || "local"
+    );
+
+    const existing = readPersistedChatHistory();
+    const messageId = String(entry?.messageId || "").trim();
+    const targetIndex = messageId
+        ? existing.findIndex((item) => String(item?.messageId || "") === messageId)
+        : existing.findIndex((item) => String(item?.dedupeKey || "") === dedupeKey);
+
+    const nextEntry = {
+        role: safeRole,
+        text: normalizedText,
+        ts,
+        isError: Boolean(entry?.isError),
+        messageId,
+        requestId: String(entry?.requestId || "").trim(),
+        fingerprint: String(entry?.fingerprint || "").trim(),
+        dedupeKey,
+    };
+
+    if (targetIndex >= 0) {
+        existing[targetIndex] = nextEntry;
+    } else if (!existing.some((item) => String(item?.dedupeKey || "") === dedupeKey)) {
+        existing.push(nextEntry);
+    }
+
+    writePersistedChatHistory(existing);
+}
+
 export function setAuthFeedback(text = "", mode = "error") {
     setFeedback(app.dom.authErrorEl, text, mode);
 }
@@ -61,6 +155,10 @@ export function setAddDeviceFeedback(text = "", mode = "error") {
 
 export function setAddFunctionButtonFeedback(text = "", mode = "error") {
     setFeedback(app.dom.addFunctionButtonStatusEl, text, mode);
+}
+
+export function setDeviceScheduleFeedback(text = "", mode = "error") {
+    setFeedback(app.dom.deviceScheduleModalStatusEl, text, mode);
 }
 
 export function markUiReady() {
@@ -112,6 +210,41 @@ export function positionSettingsMenu() {
     app.dom.settingsMenuEl.style.removeProperty("--settings-menu-top");
 }
 
+function updatePasswordToggle(button, input, isVisible) {
+    if (!button || !input) {
+        return;
+    }
+    input.type = isVisible ? "text" : "password";
+    button.classList.toggle("is-visible", isVisible);
+    button.setAttribute("aria-pressed", String(isVisible));
+    button.setAttribute("aria-label", isVisible ? "Ẩn mật khẩu" : "Hiện mật khẩu");
+}
+
+export function initPasswordVisibilityToggles() {
+    document.querySelectorAll("[data-password-toggle]").forEach((button) => {
+        const targetId = button.getAttribute("data-password-target");
+        if (!targetId) {
+            return;
+        }
+        const input = document.getElementById(targetId);
+        updatePasswordToggle(button, input, false);
+        button.addEventListener("click", () => {
+            updatePasswordToggle(button, input, input?.type === "password");
+        });
+    });
+}
+
+export function resetPasswordVisibility(scope = document) {
+    scope.querySelectorAll?.("[data-password-toggle]").forEach((button) => {
+        const targetId = button.getAttribute("data-password-target");
+        if (!targetId) {
+            return;
+        }
+        const input = document.getElementById(targetId);
+        updatePasswordToggle(button, input, false);
+    });
+}
+
 export function closeSettingsMenu() {
     app.dom.settingsMenuEl?.classList.remove("is-open");
     app.dom.settingsBtnEl?.setAttribute("aria-expanded", "false");
@@ -143,6 +276,7 @@ export function openPasswordModal() {
     closeSettingsMenu();
     setPasswordFeedback("");
     app.dom.passwordFormEl?.reset();
+    resetPasswordVisibility(app.dom.passwordFormEl);
     app.dom.passwordModalEl?.classList.add("is-visible");
     app.dom.passwordModalEl?.setAttribute("aria-hidden", "false");
     window.setTimeout(() => app.dom.currentPasswordEl?.focus(), 0);
@@ -152,10 +286,14 @@ export function closePasswordModal() {
     app.dom.passwordModalEl?.classList.remove("is-visible");
     app.dom.passwordModalEl?.setAttribute("aria-hidden", "true");
     app.dom.passwordFormEl?.reset();
+    resetPasswordVisibility(app.dom.passwordFormEl);
     setPasswordFeedback("");
 }
 
 export function closeDeviceMenus() {
+    document.querySelectorAll("[data-device-id].is-menu-open").forEach((card) => {
+        card.classList.remove("is-menu-open");
+    });
     document.querySelectorAll("[data-device-menu]").forEach((menu) => {
         menu.classList.remove("is-open");
         menu.setAttribute("aria-hidden", "true");
@@ -168,6 +306,7 @@ export function closeDeviceMenus() {
 export function toggleDeviceMenu(button) {
     const anchor = button?.closest("[data-device-menu-anchor]");
     const menu = anchor?.querySelector("[data-device-menu]");
+    const card = button?.closest("[data-device-id]");
     if (!button || !menu) {
         return;
     }
@@ -176,6 +315,7 @@ export function toggleDeviceMenu(button) {
     if (!willOpen) {
         return;
     }
+    card?.classList.add("is-menu-open");
     menu.classList.add("is-open");
     menu.setAttribute("aria-hidden", "false");
     button.setAttribute("aria-expanded", "true");
@@ -193,6 +333,7 @@ export function setControlLockState(locked) {
     if (app.dom.learnCommandBtnEl) app.dom.learnCommandBtnEl.disabled = locked || app.state.isLearningIr;
     if (app.dom.addDeviceBtnEl) app.dom.addDeviceBtnEl.disabled = locked || app.state.isAddDeviceSubmitting;
     if (app.dom.deviceControlBackBtnEl) app.dom.deviceControlBackBtnEl.disabled = locked;
+    if (app.dom.deviceScheduleTriggerBtnEl) app.dom.deviceScheduleTriggerBtnEl.disabled = locked || app.state.isScheduleSubmitting;
     if (app.dom.addFunctionTriggerBtnEl) app.dom.addFunctionTriggerBtnEl.disabled = locked;
     if (app.dom.irStartBtnEl) app.dom.irStartBtnEl.disabled = locked || app.state.isLearningIr;
     if (app.dom.irCancelBtnEl) app.dom.irCancelBtnEl.disabled = locked || app.state.isLearningIr;
@@ -203,6 +344,12 @@ export function setControlLockState(locked) {
     }
     if (app.dom.addFunctionButtonCancelBtnEl) {
         app.dom.addFunctionButtonCancelBtnEl.disabled = locked;
+    }
+    if (app.dom.deviceScheduleSubmitBtnEl) {
+        app.dom.deviceScheduleSubmitBtnEl.disabled = locked || app.state.isScheduleSubmitting;
+    }
+    if (app.dom.deviceScheduleCancelBtnEl) {
+        app.dom.deviceScheduleCancelBtnEl.disabled = locked || app.state.isScheduleSubmitting;
     }
 
     if (locked) {
@@ -285,6 +432,53 @@ export function showChatEmptyState() {
     `;
 }
 
+export function hydrateChatHistory() {
+    if (!app.dom.chatMessagesEl) {
+        return false;
+    }
+
+    const history = readPersistedChatHistory();
+    if (!history.length) {
+        return false;
+    }
+
+    app.dom.chatMessagesEl.innerHTML = "";
+    app.state.renderedMessageKeys.clear();
+
+    history.forEach((entry) => {
+        const dedupeKey = buildDedupeKey(
+            app.constants.CHAT_ROLE_META[entry?.role] ? entry.role : "system",
+            String(entry?.text || "").trim(),
+            entry?.messageId || entry?.requestId || entry?.fingerprint || "local"
+        );
+        app.state.renderedMessageKeys.add(dedupeKey);
+
+        const rowEl = document.createElement("div");
+        const safeRole = app.constants.CHAT_ROLE_META[entry?.role] ? entry.role : "system";
+        rowEl.className = `chat-row role-${safeRole}${entry?.isError ? " is-error" : ""}`;
+        if (entry?.messageId) {
+            rowEl.dataset.messageId = entry.messageId;
+        }
+        rowEl.innerHTML = _buildChatRowHtml(safeRole, String(entry?.text || "").trim(), Number(entry?.ts) || Date.now());
+        app.dom.chatMessagesEl.appendChild(rowEl);
+    });
+
+    app.state.hasShownWelcomeMessage = history.some((entry) => String(entry?.fingerprint || "") === "welcome-message");
+    scrollChatToBottom();
+    return true;
+}
+
+export function clearPersistedChatHistory() {
+    try {
+        window.sessionStorage.removeItem(app.constants.CHAT_HISTORY_STORAGE_KEY);
+        window.localStorage.removeItem(app.constants.CHAT_HISTORY_STORAGE_KEY);
+    } catch (error) {
+        console.warn("[chat] failed to clear persisted history", error);
+    }
+    app.state.renderedMessageKeys.clear();
+    app.state.hasShownWelcomeMessage = false;
+}
+
 export function addChatMessage(role, text, ts = Date.now(), options = {}) {
     const safeRole = app.constants.CHAT_ROLE_META[role] ? role : "system";
     const normalizedText = String(text || "").trim();
@@ -314,6 +508,15 @@ export function addChatMessage(role, text, ts = Date.now(), options = {}) {
     rowEl.innerHTML = _buildChatRowHtml(safeRole, normalizedText, ts);
 
     app.dom.chatMessagesEl.appendChild(rowEl);
+    persistChatMessage({
+        role: safeRole,
+        text: normalizedText,
+        ts,
+        isError: Boolean(options.isError),
+        messageId: options.messageId,
+        requestId: options.requestId,
+        fingerprint: options.fingerprint,
+    });
     scrollChatToBottom();
     return true;
 }
@@ -332,6 +535,15 @@ export function upsertChatMessage(role, text, ts = Date.now(), options = {}) {
         if (rowEl) {
             rowEl.className = `chat-row role-${safeRole}${options.isError ? " is-error" : ""}`;
             rowEl.innerHTML = _buildChatRowHtml(safeRole, normalizedText, ts);
+            upsertPersistedChatMessage({
+                role: safeRole,
+                text: normalizedText,
+                ts,
+                isError: Boolean(options.isError),
+                messageId,
+                requestId: options.requestId,
+                fingerprint: options.fingerprint,
+            });
             scrollChatToBottom();
             return true;
         }

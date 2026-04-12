@@ -73,8 +73,6 @@ def _check_audio_backend() -> bool:
         _LAST_BACKEND_ERROR_MESSAGE = str(exc)
         _AUDIO_BACKEND_OK = False
         log_event(source="stt", level="error", message="Audio backend lỗi", payload={"error": repr(exc)})
-        if DEBUG_VOICE:
-            print(f"[MIC] Audio backend loi: {_LAST_BACKEND_ERROR_MESSAGE}")
         return False
 
 
@@ -88,8 +86,6 @@ def _resolve_microphone_index():
             names = sr.Microphone.list_microphone_names()
     except Exception as exc:
         log_event(source="stt", level="error", message="Không lấy được danh sách microphone", payload={"error": repr(exc)})
-        if DEBUG_VOICE:
-            print(f"[MIC] Khong lay duoc danh sach mic de auto-chon: {exc}")
         return None
 
     if not names:
@@ -99,8 +95,6 @@ def _resolve_microphone_index():
     for keyword in MIC_PREFERRED_KEYWORDS:
         for idx, mic_name in enumerate(lowered):
             if keyword in mic_name:
-                if DEBUG_VOICE:
-                    print(f"[MIC] Auto chon mic index={idx} theo keyword='{keyword}': {names[idx]}")
                 return idx
 
     # Fallback ve default cua he thong neu khong match keyword
@@ -158,8 +152,6 @@ def recognize_once():
         return ""
 
     if not _check_audio_backend():
-        if DEBUG_VOICE and _LAST_BACKEND_ERROR_MESSAGE:
-            print(f"[MIC] Bo qua lan nghe vi backend chua san sang: {_LAST_BACKEND_ERROR_MESSAGE}")
         return ""
 
     mic_index = _resolve_microphone_index()
@@ -168,11 +160,6 @@ def recognize_once():
         with _suppress_native_audio_stderr():
             with sr.Microphone(device_index=mic_index) as source:
                 log_event(source="stt", level="info", message="Bắt đầu lắng nghe microphone", payload={"mic_index": mic_index})
-                if DEBUG_VOICE:
-                    if mic_index is None:
-                        print("[MIC] Dang nghe tu micro mac dinh ...")
-                    else:
-                        print(f"[MIC] Dang nghe tu micro index={mic_index} ...")
 
                 now = time.time()
                 should_refresh_ambient = (
@@ -230,19 +217,13 @@ def recognize_once():
                 return ""
             last_tts_text, last_tts_time = get_last_tts_state()
             if is_echo_from_tts(text, last_tts_text, last_tts_time):
-                print("[VOICE] Bo qua vi nghi la am thanh TTS cua chinh minh")
                 log_event(source="stt", level="warning", message="Bỏ qua do nghi là echo từ TTS", payload={"text": text, "last_tts_text": last_tts_text})
                 return ""
-
-            if DEBUG_VOICE:
-                print(f"[STT] Raw text: {text}")
 
             return text
 
         except sr.UnknownValueError:
             log_event(source="stt", level="warning", message="Không nhận diện được giọng nói", payload={})
-            if DEBUG_VOICE:
-                print("[STT] Khong nhan dien duoc giong noi.")
             return ""
 
         except sr.RequestError as e:

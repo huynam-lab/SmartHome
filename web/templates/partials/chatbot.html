@@ -1,0 +1,31 @@
+<section id="chatbot-popup" class="chatbot-popup is-hidden glass-card" aria-hidden="true">
+    <header class="chatbot-popup-header">
+        <div>
+            <p class="section-kicker">SmartHome AI</p>
+        </div>
+    </header>
+
+    <div id="chat-status-banner" class="chat-status-banner">
+        <span class="chat-status-dot"></span>
+        <span id="chat-status-text"> Nhận lệnh bằng giọng nói</span>
+    </div>
+
+    <div id="chat-messages" class="chat-messages" aria-live="polite"></div>
+
+    <form id="chat-form" class="chat-composer chatbot-composer" autocomplete="off">
+        <div class="chat-actions">
+            <button id="mic-btn" type="button" class="icon-btn large-mic-btn" aria-label="Bắt đầu ghi âm">
+                <span class="icon-btn-symbol">🎙️</span>
+            </button>
+        </div>
+        <div class="voice-helper">
+            <span class="voice-helper-label">Voice Assistant</span>
+            <strong>Chạm micro để nói</strong>
+        </div>
+    </form>
+</section>
+
+<button id="chatbot-fab" class="chatbot-fab" type="button" aria-label="Mở chatbot" aria-controls="chatbot-popup"
+    aria-expanded="false">
+    <span class="chatbot-fab-icon" aria-hidden="true">💬</span>
+</button>

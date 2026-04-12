@@ -15,9 +15,11 @@ from config import (
     DEVICE_LOCATION_NAME,
     DEVICE_LONGITUDE,
     GEMINI_CHAT_MAX_TOKENS,
+    GEMINI_CHAT_RETRY_ENABLED,
     GEMINI_API_KEY,
     GEMINI_MODEL,
     GEMINI_RPM_LIMIT,
+    GEMINI_TIMEOUT_SECONDS,
     GEMINI_UNAVAILABLE_TEXT,
     WAKE_REPLY_TEXT,
     WEATHER_API_TIMEOUT_SECONDS,
@@ -74,7 +76,7 @@ WEATHER_CODE_LABELS = {
 
 
 def _log(message: str) -> None:
-    print(f"[AI] {message}")
+    log_event(source="gemini", level="info", message=message)
 
 
 def _extract_response_text(response: Any) -> str:
@@ -163,10 +165,29 @@ def build_gemini_client() -> Optional[Any]:
             from google import genai
 
             _client_cache = genai.Client(api_key=GEMINI_API_KEY)
-            _log("Đã khởi tạo Gemini client")
+            log_event(
+                source="gemini",
+                level="success",
+                message="Đã khởi tạo Gemini client",
+                payload={"model": GEMINI_MODEL},
+            )
             return _client_cache
         except Exception as exc:
-            _log(f"Không khởi tạo được Gemini client: {exc}")
+            log_event(
+                source="gemini",
+                level="error",
+                message="Không khởi tạo được Gemini client",
+                payload={
+                    "model": GEMINI_MODEL,
+                    "error": repr(exc),
+                    "exception_type": type(exc).__name__,
+                    "exception_message": str(exc),
+                    "hint": (
+                        "Môi trường hiện tại cần cài dependency Gemini đúng Python runtime. "
+                        "Thử: python3.10 -m pip install -r requirements-py310.txt"
+                    ),
+                },
+            )
             return None
 
 
@@ -181,32 +202,106 @@ def _generate_with_gemini(
 
     _wait_for_rpm_slot()
 
-    try:
-        response = client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=prompt,
-            config={
-                "temperature": temperature,
+    result_holder: Dict[str, Any] = {}
+    error_holder: Dict[str, Any] = {}
+
+    def _worker() -> None:
+        try:
+            response = client.models.generate_content(
+                model=GEMINI_MODEL,
+                contents=prompt,
+                config={
+                    "temperature": temperature,
+                    "max_output_tokens": max_output_tokens,
+                },
+            )
+            result_holder["response"] = response
+        except Exception as exc:
+            error_holder["error"] = exc
+
+    started_at = time.time()
+    worker = threading.Thread(target=_worker, daemon=True)
+    worker.start()
+    worker.join(timeout=max(1.0, float(GEMINI_TIMEOUT_SECONDS)))
+    latency_ms = int((time.time() - started_at) * 1000)
+
+    if worker.is_alive():
+        log_event(
+            source="gemini",
+            level="error",
+            message="Gemini timeout",
+            payload={
+                "timeout_seconds": GEMINI_TIMEOUT_SECONDS,
+                "model": GEMINI_MODEL,
                 "max_output_tokens": max_output_tokens,
+                "latency_ms": latency_ms,
             },
         )
+        return {"text": "", "finish_reason": "TIMEOUT", "usage_metadata": {}, "latency_ms": latency_ms}
+
+    if "error" in error_holder:
+        exc = error_holder["error"]
+        log_event(
+            source="gemini",
+            level="error",
+            message="Lỗi gọi Gemini",
+            payload={
+                "model": GEMINI_MODEL,
+                "max_output_tokens": max_output_tokens,
+                "latency_ms": latency_ms,
+                "error": repr(exc),
+                "exception_type": type(exc).__name__,
+                "exception_message": str(exc),
+            },
+        )
+        return {"text": "", "finish_reason": "", "usage_metadata": {}, "latency_ms": latency_ms}
+
+    try:
+        response = result_holder.get("response")
         _log(f"Raw response type: {type(response)}")
         text = _extract_response_text(response)
         finish_reason = _extract_finish_reason(response)
         usage_metadata = _extract_usage_metadata(response)
         _log(
             f"Gemini finish_reason={finish_reason or 'unknown'} "
-            f"usage={usage_metadata or {}}"
+            f"usage={usage_metadata or {}} latency_ms={latency_ms} "
+            f"tokens={max_output_tokens}"
         )
         _log(f"Gemini text: {text!r}")
+        if finish_reason and str(finish_reason).strip().upper() in {"MAX_TOKENS", "SAFETY", "RECITATION", "OTHER"}:
+            log_event(
+                source="gemini",
+                level="warning",
+                message="Gemini response có dấu hiệu chưa hoàn chỉnh",
+                payload={
+                    "finish_reason": finish_reason,
+                    "model": GEMINI_MODEL,
+                    "max_output_tokens": max_output_tokens,
+                    "latency_ms": latency_ms,
+                    "text_preview": (text or "")[:300],
+                    "usage_metadata": usage_metadata,
+                },
+            )
         return {
             "text": (text or "").strip(),
             "finish_reason": finish_reason,
             "usage_metadata": usage_metadata,
+            "latency_ms": latency_ms,
         }
     except Exception as exc:
-        _log(f"Lỗi gọi Gemini model={GEMINI_MODEL}: {repr(exc)}")
-        return {"text": "", "finish_reason": "", "usage_metadata": {}}
+        log_event(
+            source="gemini",
+            level="error",
+            message="Lỗi parse response Gemini",
+            payload={
+                "model": GEMINI_MODEL,
+                "latency_ms": latency_ms,
+                "error": repr(exc),
+                "exception_type": type(exc).__name__,
+                "exception_message": str(exc),
+            },
+        )
+        return {"text": "", "finish_reason": "", "usage_metadata": {}, "latency_ms": latency_ms}
 
 
 def _strip_code_fence(text: str) -> str:
@@ -245,6 +340,8 @@ Bạn là trợ lý nhà thông minh nói tiếng Việt.
 Luôn xưng là "em" và gọi người dùng là "anh/chị".
 Trả lời tự nhiên, rõ ràng, đủ ý, không cụt câu, không bỏ dở nửa câu.
 Trả lời trọn vẹn trong một lần. Nếu câu hỏi rộng, hãy tóm tắt gọn nhưng vẫn đầy đủ ý chính.
+Không tự rút ngắn câu trả lời thành một câu xác nhận quá ngắn khi người dùng đang trò chuyện bình thường.
+Với câu hỏi trò chuyện hoặc hỏi khả năng của em, ưu tiên trả lời ít nhất 2 câu ngắn, tự nhiên và hữu ích nếu phù hợp.
 Không nhắc đến JSON, schema, intent, command, type hay phân loại nội bộ.
 Nếu người dùng hỏi thông tin chung thì trả lời trong khả năng của em một cách tự nhiên.
 Nếu thông tin cần dữ liệu thời gian thực mà em không chắc, hãy nói rõ điều đó ngắn gọn và lịch sự.
@@ -704,7 +801,7 @@ def build_weather_reply(text: str, context: Optional[Dict[str, Any]] = None) -> 
         output_text = _generate_with_gemini(
             prompt=fallback_prompt,
             temperature=0.4,
-            max_output_tokens=max(int(GEMINI_CHAT_MAX_TOKENS), 512),
+            max_output_tokens=max(120, int(GEMINI_CHAT_MAX_TOKENS)),
         )
         output_text = str(output_text.get("text") or "").strip()
         if output_text:
@@ -775,6 +872,99 @@ def _response_needs_retry(response_payload: Dict[str, Any]) -> bool:
     return _looks_incomplete_ai_text(text)
 
 
+def _looks_overly_brief_ai_text(user_text: str, reply_text: str) -> bool:
+    user_clean = " ".join(str(user_text or "").strip().split())
+    reply_clean = " ".join(str(reply_text or "").strip().split())
+    if not reply_clean:
+        return True
+
+    reply_words = [part for part in reply_clean.split(" ") if part]
+    if len(reply_words) >= 10 or len(reply_clean) >= 60:
+        return False
+
+    normalized_reply = normalize_text(reply_clean)
+    overly_brief_patterns = (
+        "da co",
+        "co a",
+        "em co the giup",
+        "vang a",
+        "duoc a",
+        "co the",
+    )
+    if any(pattern in normalized_reply for pattern in overly_brief_patterns):
+        return True
+
+    normalized_user = normalize_text(user_clean)
+    if len(normalized_user.split()) >= 4:
+        return True
+
+    return False
+
+
+def _append_gemini_text(base_text: str, extra_text: str) -> str:
+    base = str(base_text or "").strip()
+    extra = str(extra_text or "").strip()
+    if not base:
+        return extra
+    if not extra:
+        return base
+    if extra in base:
+        return base
+    if base.endswith((" ", "\n")):
+        return f"{base}{extra}".strip()
+    return f"{base} {extra}".strip()
+
+
+def _expand_gemini_reply(user_text: str, prompt: str, response_payload: Dict[str, Any], max_tokens: int) -> Dict[str, Any]:
+    combined_payload = dict(response_payload or {})
+    combined_text = str(combined_payload.get("text") or "").strip()
+    attempt = 0
+
+    while attempt < 2:
+        needs_more = _response_needs_retry(combined_payload) or _looks_overly_brief_ai_text(user_text, combined_text)
+        if not needs_more:
+            break
+
+        attempt += 1
+        log_event(
+            source="gemini",
+            level="warning",
+            message="Gemini response quá ngắn hoặc chưa hoàn chỉnh, yêu cầu trả lời tiếp",
+            payload={
+                "attempt": attempt,
+                "finish_reason": combined_payload.get("finish_reason") or "",
+                "latency_ms": combined_payload.get("latency_ms"),
+                "max_output_tokens": max_tokens,
+                "text_preview": combined_text[:300],
+            },
+        )
+        continuation_prompt = (
+            f"{prompt}\n\n"
+            "Phần trả lời trước của em đang quá ngắn hoặc bị dở:\n"
+            f"{combined_text}\n\n"
+            "Hãy tiếp tục hoặc viết lại đầy đủ hơn để người dùng đọc là hiểu trọn ý."
+            " Không lặp lại nguyên văn phần đã nói nếu không cần."
+            " Kết thúc câu trả lời trọn vẹn, tự nhiên."
+        )
+        next_payload = _generate_with_gemini(
+            prompt=continuation_prompt,
+            temperature=0.4,
+            max_output_tokens=min(max_tokens + 180, 900),
+        )
+        next_text = str(next_payload.get("text") or "").strip()
+        if not next_text:
+            break
+        combined_text = _append_gemini_text(combined_text, next_text)
+        combined_payload = {
+            "text": combined_text,
+            "finish_reason": next_payload.get("finish_reason") or combined_payload.get("finish_reason") or "",
+            "usage_metadata": next_payload.get("usage_metadata") or combined_payload.get("usage_metadata") or {},
+            "latency_ms": next_payload.get("latency_ms") or combined_payload.get("latency_ms"),
+        }
+
+    return combined_payload
+
+
 def build_chat_reply_with_ai(text: str, context: Optional[Dict[str, Any]] = None) -> str:
     if not text:
         return CHAT_FALLBACK_TEXT
@@ -789,27 +979,21 @@ def build_chat_reply_with_ai(text: str, context: Optional[Dict[str, Any]] = None
     if not GEMINI_API_KEY:
         return GEMINI_UNAVAILABLE_TEXT
 
-    max_tokens = max(int(GEMINI_CHAT_MAX_TOKENS), 512)
+    max_tokens = max(320, int(GEMINI_CHAT_MAX_TOKENS))
+    prompt = _build_chat_prompt(text)
     response_payload = _generate_with_gemini(
-        prompt=_build_chat_prompt(text),
-        temperature=0.6,
+        prompt=prompt,
+        temperature=0.45,
         max_output_tokens=max_tokens,
     )
+    if GEMINI_CHAT_RETRY_ENABLED:
+        response_payload = _expand_gemini_reply(
+            user_text=text,
+            prompt=prompt,
+            response_payload=response_payload,
+            max_tokens=max_tokens,
+        )
     output_text = str(response_payload.get("text") or "").strip()
-    if _response_needs_retry(response_payload):
-        retry_prompt = (
-            f"{_build_chat_prompt(text)}\n\n"
-            "Yêu cầu bổ sung: Hãy trả lời lại thành một đoạn hoàn chỉnh, kết thúc trọn ý,"
-            " không bị dở giữa câu."
-        )
-        retry_payload = _generate_with_gemini(
-            prompt=retry_prompt,
-            temperature=0.4,
-            max_output_tokens=min(max_tokens * 2, 1024),
-        )
-        retry_text = str(retry_payload.get("text") or "").strip()
-        if retry_text:
-            output_text = retry_text
     if output_text:
         return _postprocess_ai_text(output_text)
     return GEMINI_UNAVAILABLE_TEXT

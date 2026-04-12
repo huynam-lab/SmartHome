@@ -1,9 +1,10 @@
 import { app } from "./core.js";
 import { fetchJson, setUnauthorizedHandler } from "./api.js";
-import { clearVoiceSendTimer, resetVoiceState } from "./chat.js";
-import { closeAddDeviceModal, closeAddFunctionButtonModal, closeDeviceControlPage, closeIrLearnModal, hydrateCachedDevices, loadDevices, loadIrTemplateOptions } from "./devices.js";
+import { clearVoiceSendTimer, refreshMicrophonePermissionStatus, resetVoiceState, stopMic } from "./chat.js";
+import { closeAddDeviceModal, closeAddFunctionButtonModal, closeDeviceControlPage, closeDeviceScheduleModal, closeIrLearnModal, hydrateCachedDevices, loadDevices, loadIrTemplateOptions } from "./devices.js";
 import { initializeApp, pollEvents, prepareLockedShell, setupRealtime, stopRealtimeAndPolling } from "./realtime.js";
 import {
+    clearPersistedChatHistory,
     closePasswordModal,
     closeSettingsMenu,
     setAuthFeedback,
@@ -28,25 +29,21 @@ function getBootstrapSessionData() {
     };
 }
 
-export function lockControlUi(message = "Vui lòng đăng nhập để mở quyền điều khiển thiết bị.") {
+export function lockControlUi(message = "Vui lòng đăng nhập") {
     app.state.isAuthenticated = false;
     app.state.appInitialized = false;
     stopRealtimeAndPolling();
     clearVoiceSendTimer();
+    clearPersistedChatHistory();
 
-    if (app.state.recognition && app.state.isListening) {
-        try {
-            app.state.recognition.stop();
-        } catch (error) {
-            console.warn("[auth] recognition.stop() failed", error);
-        }
-    }
+    stopMic({ force: true, updateUi: false });
 
     resetVoiceState();
     closeSettingsMenu();
     closePasswordModal();
     closeAddDeviceModal();
     closeAddFunctionButtonModal();
+    closeDeviceScheduleModal();
     closeDeviceControlPage({ navigate: false });
     closeIrLearnModal({ force: true });
     setAuthFeedback(message, "error");
@@ -72,7 +69,7 @@ export async function handleLogout() {
     } catch (error) {
         // Ignore logout transport errors, local UI still needs to lock.
     }
-    lockControlUi("Bạn đã đăng xuất. Vui lòng đăng nhập lại để tiếp tục.");
+    lockControlUi("Vui lòng đăng nhập");
 }
 
 export async function unlockControlUi(sessionData = {}) {
@@ -93,6 +90,7 @@ export async function unlockControlUi(sessionData = {}) {
     setupRealtime();
     hydrateCachedDevices();
     markUiReady();
+    await refreshMicrophonePermissionStatus();
     await loadIrTemplateOptions();
     await loadDevices();
     await pollEvents();
@@ -110,8 +108,8 @@ export async function submitLogin(event) {
     const jetsonId = String(formData.get("jetson_id") || "").trim();
     const endpoint = app.state.authMode === "register" ? "/api/auth/register" : "/api/auth/login";
     const successChipText = app.state.authMode === "register"
-        ? "Đang tạo tài khoản và liên kết Jetson..."
-        : "Đang xác thực với MongoDB Atlas...";
+        ? "Đang tạo tài khoản..."
+        : "Đang xác thực...";
 
     app.state.isAuthSubmitting = true;
     if (app.dom.authSubmitBtnEl) {
@@ -197,6 +195,7 @@ export async function bootstrapAuthentication() {
         initializeApp();
         hydrateCachedDevices();
         markUiReady();
+        await refreshMicrophonePermissionStatus();
         await loadIrTemplateOptions();
         await loadDevices();
     } else {
@@ -216,7 +215,7 @@ export async function bootstrapAuthentication() {
             }
             return;
         }
-        lockControlUi("Vui lòng đăng nhập để mở quyền điều khiển thiết bị.");
+        lockControlUi("");
     } catch (error) {
         lockControlUi(error.message || "Không kiểm tra được trạng thái đăng nhập.");
     }

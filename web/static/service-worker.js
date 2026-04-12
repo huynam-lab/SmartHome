@@ -2,6 +2,7 @@ const APP_CACHE = "smart-home-app-v3";
 const RUNTIME_CACHE = "smart-home-runtime-v3";
 const APP_SHELL_URLS = [
     "/",
+    "/index",
     "/offline",
     "/manifest.webmanifest",
     "/static/style.css",

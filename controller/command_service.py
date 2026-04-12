@@ -17,6 +17,52 @@ from speech.tts import speak_text_async
 SAFE_AMBIGUOUS_REPLY = "Anh/chị nói rõ giúp em là bật hay tắt thiết bị ạ."
 
 
+def _dedupe_action_sequence(actions) -> list[str]:
+    normalized_actions: list[str] = []
+    for raw_action in list(actions or []):
+        action = str(raw_action or "").strip().lower()
+        if action and action not in normalized_actions:
+            normalized_actions.append(action)
+    return normalized_actions
+
+
+def _execute_action_sequence(device: str, actions) -> dict:
+    sequence = _dedupe_action_sequence(actions)
+    if not device or not sequence:
+        return {
+            "ok": False,
+            "message": "Thiếu device hoặc action để thực thi.",
+            "steps": [],
+        }
+
+    executed_steps = []
+    last_result = None
+    for action in sequence:
+        step_result = control_device(device=device, action=action)
+        executed_steps.append(
+            {
+                "action": action,
+                "ok": bool(step_result.get("ok")),
+                "message": step_result.get("message") or "",
+                "reply_text": step_result.get("reply_text") or "",
+            }
+        )
+        last_result = step_result
+        if not step_result.get("ok"):
+            response = dict(step_result)
+            response["steps"] = executed_steps
+            if len(executed_steps) > 1:
+                response["message"] = (
+                    step_result.get("message")
+                    or f"Thực thi chuỗi lệnh bị lỗi ở bước {action}."
+                )
+            return response
+
+    response = dict(last_result or {})
+    response["steps"] = executed_steps
+    return response
+
+
 def _extract_device_from_user_text(user_text: str, action: str) -> str:
     """Tách cụm thiết bị từ chính câu người dùng để trả lời tự nhiên."""
     if not user_text:
@@ -68,19 +114,23 @@ def _extract_device_from_user_text(user_text: str, action: str) -> str:
 def build_response(user_text: str, intent: dict, device_name: str = "") -> str:
     """Tạo câu trả lời tự nhiên dựa trên text gốc và intent."""
     action = (intent or {}).get("action")
+    action_semantic = str((intent or {}).get("action_semantic") or "").strip().lower()
+    if action_semantic in {"on", "off"}:
+        action = action_semantic
+
     if action not in {"on", "off", "power.on", "power.off"}:
         return ""
 
     action_text = "bật" if action in {"on", "power.on"} else "tắt"
 
     if device_name:
-        return f"Vâng, em đã {action_text} {device_name}."
+        return f"Kích hoạt thành công"
 
     device_from_text = _extract_device_from_user_text(user_text, "on" if action in {"on", "power.on"} else "off")
     if not device_from_text:
         return ""
 
-    return f"Vâng, em đã {action_text} {device_from_text}."
+    return f"Kích hoạt thành công"
 
 
 def contains_phrase(text: str, phrases) -> bool:
@@ -125,6 +175,7 @@ def _build_reply_text(result: dict) -> str:
     intent = result.get("intent") or {}
     device = intent.get("device")
     action = intent.get("action")
+    action_semantic = str(intent.get("action_semantic") or "").strip().lower()
     user_text = result.get("text") or ""
 
     if result.get("should_exit"):
@@ -145,11 +196,13 @@ def _build_reply_text(result: dict) -> str:
 
     if result.get("mode") == "command-local" and device and action:
         if result.get("ok"):
-            action_text = "bật" if action in {"on", "power.on"} else "tắt" if action in {"off", "power.off"} else "thực thi"
+            normalized_action = action_semantic or action
+            action_text = "bật" if normalized_action in {"on", "power.on"} else "tắt" if normalized_action in {"off", "power.off"} else "thực thi"
             device_name = result.get("resolved_name") or device
             return f"Vâng, em đã {action_text} {device_name}." if action_text != "thực thi" else f"Vâng, em đã thực thi lệnh cho {device_name}."
         device_name = result.get("resolved_name") or device
-        action_text = "bật" if action in {"on", "power.on"} else "tắt" if action in {"off", "power.off"} else "thực thi"
+        normalized_action = action_semantic or action
+        action_text = "bật" if normalized_action in {"on", "power.on"} else "tắt" if normalized_action in {"off", "power.off"} else "thực thi"
         return f"Em chưa {action_text} được {device_name}. Lý do: {result.get('message') or 'không rõ lỗi'}"
 
     if result.get("mode") == "music":
@@ -224,16 +277,12 @@ def _handle_music_command(text: str, music_intent: dict, source: str) -> dict:
 
 
 def _print_conversation_log(text: str, reply_text: str, source: str):
-    """Luon in hoi thoai ra terminal de de debug/quan sat."""
-    safe_user_text = text if text else "(rong)"
-    safe_reply_text = reply_text if reply_text else "(khong co phan hoi)"
-    print(f"[CTRL] ({source}) user='{safe_user_text}'")
-    print(f"[CTRL] ({source}) reply='{safe_reply_text}'")
+    """Giữ lại hook ghi hội thoại nhưng không in ra terminal."""
+    return None
 
 
 def process_text_command(text: str, source: str = "unknown", context: dict | None = None):
     """Xu ly cau lenh text chung cho web/micro Jetson."""
-    print(f"[CTRL] Nhận text từ {source}: {text}")
     log_event(source=source, level="info", message="Nhận lệnh", payload={"text": text})
 
     if not text:
@@ -295,8 +344,13 @@ def process_text_command(text: str, source: str = "unknown", context: dict | Non
     resolution_status = str(resolution.get("status") or "").strip().lower()
     if resolution_status == "resolved":
         intent = dict(resolution.get("intent") or {})
-        print(f"[CTRL] Thực thi control_device bằng local parser với intent={intent}")
-        result = control_device(device=intent["device"], action=intent["action"])
+        action_config = dict((resolution.get("action_config") or {}))
+        action_semantic = str((action_config.get("semantic") or {}).get("operation") or "").strip().lower()
+        if action_semantic:
+            intent["action_semantic"] = action_semantic
+        action_sequence = _dedupe_action_sequence(intent.get("action_sequence") or [intent.get("action")])
+        intent["action_sequence"] = action_sequence
+        result = _execute_action_sequence(device=intent["device"], actions=action_sequence)
         output = {
             "text": text,
             "intent": intent,
@@ -306,8 +360,8 @@ def process_text_command(text: str, source: str = "unknown", context: dict | Non
             "role": "assistant",
             **result,
         }
-        if output.get("ok") and output.get("resolved_device") and intent.get("action"):
-            set_state(device_id=output.get("resolved_device"), state=intent.get("action"), source=source)
+        if output.get("ok") and output.get("resolved_device") and output.get("state"):
+            set_state(device_id=output.get("resolved_device"), state=output.get("state"), source=source)
         output["resolved_name"] = output.get("resolved_name") or output.get("device_name") or output.get("resolved_device") or intent.get("device")
         output["reply_text"] = _build_reply_text(output)
         speak_text_async(output["reply_text"])

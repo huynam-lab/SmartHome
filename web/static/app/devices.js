@@ -5,16 +5,14 @@ import {
     formatCommandStatus,
     formatActionLabel,
     getEffectiveDeviceState,
+    getEffectiveActiveAction,
     getActionButtonClass,
     getDeviceIcon,
     getStatusBannerClass,
-    normalizeIrFilenameInput,
-    suggestLearnFilename,
     parseMultilinePhrases,
     getIrSemanticConfig,
     buildSemanticActionPayload,
     buildDefaultActionPhrases,
-    isValidLearnFilename,
     slugifyVietnameseText,
 } from "./utils.js";
 import {
@@ -24,6 +22,7 @@ import {
     setAddDeviceFeedback,
     setAddFunctionButtonFeedback,
     setChatStatus,
+    setDeviceScheduleFeedback,
     setIrLearnModalFeedback,
     setSummaryText,
     toggleDeviceMenu,
@@ -32,6 +31,8 @@ import {
 const DEVICE_FUNCTION_STORAGE_KEY = "smarthome.deviceFunctions.v1";
 const DEVICE_INVENTORY_CACHE_KEY = "smarthome.deviceInventory.v1";
 const LAST_OPENED_DEVICE_KEY = "smarthome.lastOpenedDevice.v1";
+const FUNCTION_BUTTON_LONG_PRESS_MS = 1200;
+let hasBoundFunctionDeleteDismissListener = false;
 
 function isDeviceControlRoute() {
     return window.location.pathname === "/device-control";
@@ -43,6 +44,10 @@ function getRequestedDeviceIdFromUrl() {
 
 function getRequestedDeviceNameFromUrl() {
     return new URLSearchParams(window.location.search).get("device_name") || "";
+}
+
+function buildDeviceControlHref(device) {
+    return `/device-control?device_id=${encodeURIComponent(device.id)}&device_name=${encodeURIComponent(device.name || "")}`;
 }
 
 function readCachedDeviceInventory() {
@@ -123,8 +128,61 @@ function buildFunctionRecord(name, commandKey, options = {}) {
         name: normalizedName,
         commandKey: normalizedCommandKey,
         backendAction: options.backendAction || normalizedCommandKey,
+        learned: Boolean(options.learned),
         source: options.source || "custom",
     };
+}
+
+function normalizeActionKey(value) {
+    return String(value || "").trim().toLowerCase();
+}
+
+function toPreferredLearningActionKey(value) {
+    const key = normalizeActionKey(value);
+    if (key === "turn_on" || key === "on") {
+        return "power.on";
+    }
+    if (key === "turn_off" || key === "off") {
+        return "power.off";
+    }
+    return key;
+}
+
+function expandActionKeyCandidates(value) {
+    const key = normalizeActionKey(value);
+    if (!key) {
+        return [];
+    }
+    const candidates = new Set([key]);
+    if (key === "turn_on" || key === "on") {
+        candidates.add("power.on");
+    }
+    if (key === "turn_off" || key === "off") {
+        candidates.add("power.off");
+    }
+    if (key === "power.on") {
+        candidates.add("turn_on");
+        candidates.add("on");
+    }
+    if (key === "power.off") {
+        candidates.add("turn_off");
+        candidates.add("off");
+    }
+    if (key.includes("_")) {
+        candidates.add(key.replaceAll("_", "."));
+    }
+    if (key.includes(".")) {
+        candidates.add(key.replaceAll(".", "_"));
+    }
+    return Array.from(candidates);
+}
+
+function isFunctionLearned(fn, learnedActionSet) {
+    const candidateKeys = [
+        ...expandActionKeyCandidates(fn?.backendAction),
+        ...expandActionKeyCandidates(fn?.commandKey),
+    ];
+    return candidateKeys.some((key) => learnedActionSet.has(key));
 }
 
 function buildDefaultDeviceFunctions(device) {
@@ -135,16 +193,20 @@ function buildDefaultDeviceFunctions(device) {
     const availableActions = Array.isArray(device.actions) ? device.actions : [];
     const onBackendAction = availableActions.find((action) => ["turn_on", "on", "power.on"].includes(action)) || "turn_on";
     const offBackendAction = availableActions.find((action) => ["turn_off", "off", "power.off"].includes(action)) || "turn_off";
+    const hasOnAction = availableActions.some((action) => ["turn_on", "on", "power.on"].includes(action));
+    const hasOffAction = availableActions.some((action) => ["turn_off", "off", "power.off"].includes(action));
 
     return [
         buildFunctionRecord("Bật", "turn_on", {
             id: "fn_on",
             backendAction: onBackendAction,
+            learned: hasOnAction,
             source: "default",
         }),
         buildFunctionRecord("Tắt", "turn_off", {
             id: "fn_off",
             backendAction: offBackendAction,
+            learned: hasOffAction,
             source: "default",
         }),
     ];
@@ -161,6 +223,7 @@ function buildFunctionsFromActions(device) {
         return buildFunctionRecord(device.action_labels?.[action] || formatActionLabel(action), commandKey, {
             id: `fn_${slugifyVietnameseText(action).replaceAll(".", "_") || action}`,
             backendAction: action,
+            learned: true,
             source: "backend",
         });
     });
@@ -168,7 +231,7 @@ function buildFunctionsFromActions(device) {
 
 function mergeFunctionLists(...lists) {
     const merged = [];
-    const seen = new Set();
+    const indexByKey = new Map();
 
     lists.flat().forEach((item) => {
         const name = String(item?.name || "").trim();
@@ -177,11 +240,28 @@ function mergeFunctionLists(...lists) {
             return;
         }
         const dedupeKey = commandKey.toLowerCase();
-        if (seen.has(dedupeKey)) {
+        const normalizedItem = buildFunctionRecord(name, commandKey, item);
+        const existingIndex = indexByKey.get(dedupeKey);
+
+        if (existingIndex === undefined) {
+            indexByKey.set(dedupeKey, merged.length);
+            merged.push(normalizedItem);
             return;
         }
-        seen.add(dedupeKey);
-        merged.push(buildFunctionRecord(name, commandKey, item));
+
+        const existing = merged[existingIndex];
+        const existingSource = String(existing?.source || "").toLowerCase();
+        const incomingSource = String(normalizedItem?.source || "").toLowerCase();
+        const shouldPreferIncoming = incomingSource === "custom" && existingSource !== "custom";
+
+        // Ưu tiên tên button custom (thường có dấu tiếng Việt) thay vì label auto từ backend.
+        if (shouldPreferIncoming) {
+            merged[existingIndex] = {
+                ...existing,
+                ...normalizedItem,
+                source: "custom",
+            };
+        }
     });
 
     return merged;
@@ -201,19 +281,24 @@ function persistCustomFunctionsForDevice(deviceId, functions) {
             name: item.name,
             commandKey: item.commandKey,
             backendAction: item.backendAction || item.commandKey,
+            learned: Boolean(item.learned),
             source: "custom",
         }));
     writePersistedFunctionMap(storageMap);
 }
 
 function normalizeDevice(device) {
+    const learnedActionSet = new Set((Array.isArray(device.actions) ? device.actions : []).map(normalizeActionKey));
     const persistedFunctions = getPersistedFunctionsForDevice(device.id);
     const normalizedFunctions = mergeFunctionLists(
         buildFunctionsFromActions(device),
         Array.isArray(device.functions) ? device.functions : [],
         buildDefaultDeviceFunctions(device),
         persistedFunctions,
-    );
+    ).map((fn) => buildFunctionRecord(fn.name, fn.commandKey, {
+        ...fn,
+        learned: isFunctionLearned(fn, learnedActionSet),
+    }));
 
     return {
         ...device,
@@ -259,6 +344,92 @@ function getLearnableDevices() {
     return app.state.deviceInventory;
 }
 
+function padSchedulePart(value) {
+    return String(Math.max(0, Number.parseInt(value, 10) || 0)).padStart(2, "0");
+}
+
+function renderDeviceScheduleList() {
+    if (!app.dom.deviceScheduleListEl) {
+        return;
+    }
+    const schedules = Array.isArray(app.state.deviceSchedules) ? app.state.deviceSchedules : [];
+    if (!schedules.length) {
+        app.dom.deviceScheduleListEl.innerHTML = '<div class="device-schedule-empty">Chưa có lịch hẹn nào cho thiết bị này.</div>';
+        return;
+    }
+
+    app.dom.deviceScheduleListEl.innerHTML = schedules.map((schedule) => `
+        <article class="device-schedule-card">
+            <div class="device-schedule-card-content">
+                <strong>${escapeHtml(schedule.action_label || (schedule.action === "power.on" ? "Bật" : "Tắt"))} lúc ${escapeHtml(schedule.time_label || `${padSchedulePart(schedule.hour)}:${padSchedulePart(schedule.minute)}`)}</strong>
+                ${schedule.repeat ? `<small>${escapeHtml(schedule.repeat_label || "Lặp lại hằng ngày")}</small>` : ""}
+            </div>
+            <button type="button" class="device-schedule-delete-btn" data-schedule-delete="${escapeHtml(schedule.id || "")}">
+                Xóa
+            </button>
+        </article>
+    `).join("");
+
+    app.dom.deviceScheduleListEl.querySelectorAll("[data-schedule-delete]").forEach((button) => {
+        button.addEventListener("click", async () => {
+            const scheduleId = String(button.dataset.scheduleDelete || "").trim();
+            const deviceId = String(app.state.currentDeviceControlId || "").trim();
+            if (!scheduleId || !deviceId) {
+                return;
+            }
+            try {
+                await fetchJson(`/api/devices/${encodeURIComponent(deviceId)}/schedules/${encodeURIComponent(scheduleId)}`, {
+                    method: "DELETE",
+                    headers: { "Content-Type": "application/json" },
+                });
+                app.state.deviceSchedules = app.state.deviceSchedules.filter((item) => String(item.id || "") !== scheduleId);
+                renderDeviceScheduleList();
+                setDeviceScheduleFeedback("Đã xóa lịch hẹn.", "success");
+            } catch (error) {
+                if (!error.isAuth) {
+                    setDeviceScheduleFeedback(error.message || "Không xóa được lịch hẹn.");
+                }
+            }
+        });
+    });
+}
+
+async function loadDeviceSchedules(deviceId) {
+    const normalizedDeviceId = String(deviceId || "").trim();
+    if (!normalizedDeviceId) {
+        app.state.deviceSchedules = [];
+        renderDeviceScheduleList();
+        return;
+    }
+    const { result } = await fetchJson(`/api/devices/${encodeURIComponent(normalizedDeviceId)}/schedules`);
+    app.state.deviceSchedules = Array.isArray(result.schedules) ? result.schedules : [];
+    renderDeviceScheduleList();
+}
+
+function setDeviceScheduleLoadingState(loading) {
+    app.state.isScheduleSubmitting = loading;
+    [
+        app.dom.deviceScheduleSubmitBtnEl,
+        app.dom.deviceScheduleCancelBtnEl,
+        app.dom.deviceScheduleCloseBtnEl,
+        app.dom.deviceScheduleHourInputEl,
+        app.dom.deviceScheduleMinuteInputEl,
+        app.dom.deviceScheduleActionInputEl,
+        app.dom.deviceScheduleRepeatInputEl,
+    ].forEach((el) => {
+        if (el) {
+            el.disabled = loading;
+        }
+    });
+}
+
+export function setDeviceScheduleAction(action) {
+    const normalizedAction = String(action || "power.on").trim().toLowerCase() === "power.off" ? "power.off" : "power.on";
+    if (app.dom.deviceScheduleActionInputEl) {
+        app.dom.deviceScheduleActionInputEl.value = normalizedAction;
+    }
+}
+
 export function renderAddDeviceTemplateOptions() {
     if (!app.dom.addDeviceTemplateSelectEl) {
         return;
@@ -274,16 +445,7 @@ export function renderAddDeviceTemplateOptions() {
 }
 
 export function renderIrDeviceOptions() {
-    if (!app.dom.irDeviceSelectEl) {
-        return;
-    }
-    const learnableDevices = getLearnableDevices();
-    const optionsMarkup = ['<option value="">Chọn thiết bị đã thêm</option>'];
-    learnableDevices.forEach((device) => {
-        optionsMarkup.push(`<option value="${escapeHtml(device.id || "")}">${escapeHtml(device.name || device.id || "")}</option>`);
-    });
-    app.dom.irDeviceSelectEl.innerHTML = optionsMarkup.join("");
-    app.dom.irDeviceSelectEl.disabled = learnableDevices.length === 0;
+    return;
 }
 
 export function updateIrSemanticForm() {
@@ -295,8 +457,6 @@ export function updateIrSemanticForm() {
     if (app.dom.irSemanticValueHintEl) app.dom.irSemanticValueHintEl.textContent = config.hint || "";
     if (app.dom.irSemanticValueInputEl) {
         app.dom.irSemanticValueInputEl.required = requiresValue;
-        app.dom.irSemanticValueInputEl.min = config.min || "1";
-        app.dom.irSemanticValueInputEl.step = config.step || "1";
         app.dom.irSemanticValueInputEl.placeholder = config.placeholder || "";
         if (!requiresValue) {
             app.dom.irSemanticValueInputEl.value = "";
@@ -308,13 +468,6 @@ export function updateIrSignalTypeForm() {
     const signalType = String(app.dom.irSignalTypeSelectEl?.value || "ir").trim().toLowerCase();
     const isRf = signalType === "rf";
     app.dom.irRfFrequencyFieldEl?.classList.toggle("is-hidden", !isRf);
-    if (app.dom.irFilenameLabelEl) app.dom.irFilenameLabelEl.textContent = isRf ? "Tên file .json" : "Tên file .bin";
-    if (app.dom.irFilenameInputEl) app.dom.irFilenameInputEl.placeholder = isRf ? "Ví dụ: den_san_on.json" : "Ví dụ: den_san_on.bin";
-    if (app.dom.irFilenameHintEl) {
-        app.dom.irFilenameHintEl.textContent = isRf
-            ? "Ví dụ: den_san_on.json, den_san_off.json"
-            : "Ví dụ: den_san_on.bin, den_san_off.bin";
-    }
     if (app.dom.irRfFrequencySelectEl) {
         app.dom.irRfFrequencySelectEl.required = isRf;
         if (!isRf) {
@@ -326,14 +479,14 @@ export function updateIrSignalTypeForm() {
 export function syncIrDeviceSelection(deviceId = "") {
     const selectedDevice = getDeviceById(deviceId);
     if (!selectedDevice) {
-        if (app.dom.irDeviceNameInputEl) app.dom.irDeviceNameInputEl.value = "";
+        if (app.dom.irCurrentDeviceNameEl) app.dom.irCurrentDeviceNameEl.textContent = "Thiết bị hiện tại";
         if (app.dom.irSignalTypeSelectEl) app.dom.irSignalTypeSelectEl.value = "ir";
         if (app.dom.irRfFrequencySelectEl) app.dom.irRfFrequencySelectEl.value = "";
         updateIrSignalTypeForm();
         return;
     }
 
-    if (app.dom.irDeviceNameInputEl) app.dom.irDeviceNameInputEl.value = selectedDevice.name || selectedDevice.id || "";
+    if (app.dom.irCurrentDeviceNameEl) app.dom.irCurrentDeviceNameEl.textContent = selectedDevice.name || selectedDevice.id || "Thiết bị hiện tại";
     if (app.dom.irSignalTypeSelectEl) {
         const signalType = String(selectedDevice.control_type || "").trim().toLowerCase();
         app.dom.irSignalTypeSelectEl.value = signalType === "rf" ? "rf" : "ir";
@@ -343,17 +496,6 @@ export function syncIrDeviceSelection(deviceId = "") {
         app.dom.irRfFrequencySelectEl.value = rfFrequency === "315" || rfFrequency === "433" ? rfFrequency : "";
     }
     updateIrSignalTypeForm();
-
-    const currentFilename = normalizeIrFilenameInput(app.dom.irFilenameInputEl?.value || "");
-    if (!currentFilename) {
-        const suggestion = suggestLearnFilename(
-            selectedDevice.name || selectedDevice.id || "",
-            String(app.dom.irSignalTypeSelectEl?.value || selectedDevice.control_type || "ir").trim().toLowerCase(),
-        );
-        if (suggestion && app.dom.irFilenameInputEl) {
-            app.dom.irFilenameInputEl.value = suggestion;
-        }
-    }
 }
 
 export async function loadIrTemplateOptions() {
@@ -405,9 +547,10 @@ export function closeAddDeviceModal() {
 }
 
 export function openIrLearnModal() {
-    if (!app.state.isAuthenticated || app.state.isLearningIr) {
+    if (!app.state.isAuthenticated || app.state.isLearningIr || !app.state.currentDeviceControlId) {
         return;
     }
+    app.state.pendingLearnContext = null;
     closeSettingsMenu();
     setIrLearnModalFeedback("");
     app.dom.irLearnFormEl?.reset();
@@ -415,20 +558,22 @@ export function openIrLearnModal() {
     if (app.dom.irSignalTypeSelectEl) app.dom.irSignalTypeSelectEl.value = "ir";
     if (app.dom.irRfFrequencySelectEl) app.dom.irRfFrequencySelectEl.value = "";
     updateIrSemanticForm();
-    updateIrSignalTypeForm();
-    renderIrDeviceOptions();
+    syncIrDeviceSelection(app.state.currentDeviceControlId);
+    setIrLearnModalMode("learn");
     app.dom.irLearnModalEl?.classList.add("is-visible");
     app.dom.irLearnModalEl?.setAttribute("aria-hidden", "false");
-    window.setTimeout(() => app.dom.irDeviceSelectEl?.focus(), 0);
+    window.setTimeout(() => app.dom.irSignalTypeSelectEl?.focus(), 0);
 }
 
 export function closeIrLearnModal({ force = false } = {}) {
     if (app.state.isLearningIr && !force) {
         return;
     }
+    app.state.pendingLearnContext = null;
     app.dom.irLearnModalEl?.classList.remove("is-visible");
     app.dom.irLearnModalEl?.setAttribute("aria-hidden", "true");
     app.dom.irLearnFormEl?.reset();
+    setIrLearnModalMode("learn");
     updateIrSemanticForm();
     updateIrSignalTypeForm();
     setIrLearnModalFeedback("");
@@ -440,9 +585,6 @@ function setIrLearnLoadingState(loading) {
         app.dom.irStartBtnEl,
         app.dom.irCancelBtnEl,
         app.dom.irLearnCloseBtnEl,
-        app.dom.irDeviceSelectEl,
-        app.dom.irDeviceNameInputEl,
-        app.dom.irFilenameInputEl,
         app.dom.irSemanticKindSelectEl,
         app.dom.irSignalTypeSelectEl,
         app.dom.irRfFrequencySelectEl,
@@ -453,6 +595,9 @@ function setIrLearnLoadingState(loading) {
             el.disabled = loading;
         }
     });
+    if (!loading) {
+        setIrLearnModalMode(String(app.state.pendingLearnContext?.mode || "").trim().toLowerCase() === "edit" ? "edit" : "learn");
+    }
 }
 
 function setAddDeviceLoadingState(loading) {
@@ -485,7 +630,7 @@ function setAddFunctionButtonLoadingState(loading) {
 
 function buildDeviceCard(device) {
     const currentState = getEffectiveDeviceState(device);
-    const deviceControlHref = `/device-control?device_id=${encodeURIComponent(device.id)}&device_name=${encodeURIComponent(device.name || "")}`;
+    const deviceControlHref = buildDeviceControlHref(device);
 
     return `
         <article class="device-card ${currentState === "on" ? "is-on" : ""}" data-device-id="${escapeHtml(device.id)}">
@@ -520,19 +665,324 @@ function buildDeviceCard(device) {
 }
 
 function buildDeviceFunctionButtonMarkup(deviceId, fn, disabled = false) {
+    const isLearned = Boolean(fn.learned);
     return `
-        <button
-            type="button"
-            class="action-btn ${getActionButtonClass(fn.commandKey)} device-function-btn"
-            data-device-function="${escapeHtml(deviceId)}"
-            data-function-id="${escapeHtml(fn.id || "")}"
-            data-command-key="${escapeHtml(fn.commandKey || "")}"
-            data-backend-action="${escapeHtml(fn.backendAction || fn.commandKey || "")}"
-            ${disabled ? "disabled" : ""}
-        >
-            ${escapeHtml(fn.name || "Function")}
-        </button>
+        <div class="device-function-item" data-function-item>
+            <button
+                type="button"
+                class="action-btn ${getActionButtonClass(fn.commandKey)} device-function-btn ${isLearned ? "" : "is-unlearned"}"
+                data-device-function="${escapeHtml(deviceId)}"
+                data-function-id="${escapeHtml(fn.id || "")}"
+                data-command-key="${escapeHtml(fn.commandKey || "")}"
+                data-backend-action="${escapeHtml(fn.backendAction || fn.commandKey || "")}"
+                data-function-name="${escapeHtml(fn.name || "Function")}"
+                data-function-source="${escapeHtml(fn.source || "custom")}"
+                data-function-learned="${isLearned ? "true" : "false"}"
+                ${disabled ? "disabled" : ""}
+            >
+                ${escapeHtml(fn.name || "Function")}
+            </button>
+            <div class="device-function-tools">
+                ${isLearned ? `
+                    <button
+                        type="button"
+                        class="device-function-edit-btn"
+                        data-function-edit="${escapeHtml(deviceId)}"
+                        data-function-id="${escapeHtml(fn.id || "")}"
+                        data-command-key="${escapeHtml(fn.commandKey || "")}"
+                        data-backend-action="${escapeHtml(fn.backendAction || fn.commandKey || "")}"
+                        data-function-name="${escapeHtml(fn.name || "Function")}"
+                    >
+                        Sửa
+                    </button>
+                ` : ""}
+                <button
+                    type="button"
+                    class="device-function-delete-btn"
+                    data-function-delete="${escapeHtml(deviceId)}"
+                    data-function-id="${escapeHtml(fn.id || "")}"
+                    data-command-key="${escapeHtml(fn.commandKey || "")}"
+                    data-backend-action="${escapeHtml(fn.backendAction || fn.commandKey || "")}"
+                    data-function-name="${escapeHtml(fn.name || "Function")}"
+                    data-function-source="${escapeHtml(fn.source || "custom")}"
+                    data-function-learned="${isLearned ? "true" : "false"}"
+                >
+                    Xóa nút
+                </button>
+            </div>
+        </div>
     `;
+}
+
+function prefillSemanticFromActionKey(actionKey) {
+    const normalizedAction = normalizeActionKey(actionKey);
+    if (["power.on", "turn_on", "on"].includes(normalizedAction)) {
+        app.dom.irSemanticKindSelectEl.value = "power.on";
+        if (app.dom.irSemanticValueInputEl) app.dom.irSemanticValueInputEl.value = "";
+        return;
+    }
+    if (["power.off", "turn_off", "off"].includes(normalizedAction)) {
+        app.dom.irSemanticKindSelectEl.value = "power.off";
+        if (app.dom.irSemanticValueInputEl) app.dom.irSemanticValueInputEl.value = "";
+        return;
+    }
+    const timerMatch = normalizedAction.match(/(?:timer[._])?off_after_(\d+)_min/);
+    if (timerMatch) {
+        app.dom.irSemanticKindSelectEl.value = "timer.off_after";
+        if (app.dom.irSemanticValueInputEl) app.dom.irSemanticValueInputEl.value = timerMatch[1];
+        return;
+    }
+    const temperatureMatch = normalizedAction.match(/climate[._]set[_]?(\d+)c/);
+    if (temperatureMatch) {
+        app.dom.irSemanticKindSelectEl.value = "climate.set_temperature";
+        if (app.dom.irSemanticValueInputEl) app.dom.irSemanticValueInputEl.value = temperatureMatch[1];
+        return;
+    }
+    const modeMatch = normalizedAction.match(/(?:climate[._])?mode[._]([a-z0-9_]+)/);
+    if (modeMatch) {
+        app.dom.irSemanticKindSelectEl.value = "climate.set_mode";
+        if (app.dom.irSemanticValueInputEl) app.dom.irSemanticValueInputEl.value = modeMatch[1];
+        return;
+    }
+    const fanMatch = normalizedAction.match(/(?:climate[._])?(?:fan|fan_speed)[._]([a-z0-9_]+)/);
+    if (fanMatch) {
+        app.dom.irSemanticKindSelectEl.value = "climate.set_fan_speed";
+        if (app.dom.irSemanticValueInputEl) app.dom.irSemanticValueInputEl.value = fanMatch[1];
+        return;
+    }
+    const swingMatch = normalizedAction.match(/(?:climate[._])?swing[._]([a-z0-9_]+)/);
+    if (swingMatch) {
+        app.dom.irSemanticKindSelectEl.value = "climate.set_swing";
+        if (app.dom.irSemanticValueInputEl) app.dom.irSemanticValueInputEl.value = swingMatch[1];
+        return;
+    }
+    const sleepMatch = normalizedAction.match(/(?:climate[._])?sleep[._]([a-z0-9_]+)/);
+    if (sleepMatch) {
+        app.dom.irSemanticKindSelectEl.value = "climate.set_sleep";
+        if (app.dom.irSemanticValueInputEl) app.dom.irSemanticValueInputEl.value = sleepMatch[1];
+    }
+}
+
+function getActionDetails(device, actionKey) {
+    if (!device) {
+        return null;
+    }
+    const actionDetails = device.action_details && typeof device.action_details === "object" ? device.action_details : {};
+    return actionDetails[actionKey] || null;
+}
+
+function prefillSemanticFromActionDetail(actionDetail, actionKey = "") {
+    const semantic = actionDetail?.semantic && typeof actionDetail.semantic === "object" ? actionDetail.semantic : {};
+    const operation = String(semantic.operation || "").trim().toLowerCase();
+    if (operation === "on") {
+        app.dom.irSemanticKindSelectEl.value = "power.on";
+        if (app.dom.irSemanticValueInputEl) app.dom.irSemanticValueInputEl.value = "";
+        return;
+    }
+    if (operation === "off") {
+        app.dom.irSemanticKindSelectEl.value = "power.off";
+        if (app.dom.irSemanticValueInputEl) app.dom.irSemanticValueInputEl.value = "";
+        return;
+    }
+    if (operation === "off_after") {
+        app.dom.irSemanticKindSelectEl.value = "timer.off_after";
+        if (app.dom.irSemanticValueInputEl) app.dom.irSemanticValueInputEl.value = String(Math.max(1, Math.round(Number(semantic.duration_seconds || 0) / 60)));
+        return;
+    }
+    if (operation === "set_temperature") {
+        app.dom.irSemanticKindSelectEl.value = "climate.set_temperature";
+        if (app.dom.irSemanticValueInputEl) app.dom.irSemanticValueInputEl.value = String(semantic.temperature_c || "");
+        return;
+    }
+    if (operation === "set_mode") {
+        app.dom.irSemanticKindSelectEl.value = "climate.set_mode";
+        if (app.dom.irSemanticValueInputEl) app.dom.irSemanticValueInputEl.value = String(semantic.mode || "");
+        return;
+    }
+    if (operation === "set_fan_speed") {
+        app.dom.irSemanticKindSelectEl.value = "climate.set_fan_speed";
+        if (app.dom.irSemanticValueInputEl) app.dom.irSemanticValueInputEl.value = String(semantic.fan_speed || "");
+        return;
+    }
+    if (operation === "set_swing") {
+        app.dom.irSemanticKindSelectEl.value = "climate.set_swing";
+        if (app.dom.irSemanticValueInputEl) app.dom.irSemanticValueInputEl.value = String(semantic.swing || "");
+        return;
+    }
+    if (operation === "set_sleep") {
+        app.dom.irSemanticKindSelectEl.value = "climate.set_sleep";
+        if (app.dom.irSemanticValueInputEl) app.dom.irSemanticValueInputEl.value = semantic.enabled ? "on" : "off";
+        return;
+    }
+    prefillSemanticFromActionKey(actionKey);
+}
+
+function setIrLearnModalMode(mode = "learn", functionName = "") {
+    const isEditMode = mode === "edit";
+    if (app.dom.irLearnModalTitleEl) {
+        app.dom.irLearnModalTitleEl.textContent = isEditMode ? "Sửa semantic" : "Học lệnh";
+    }
+    if (app.dom.irStartBtnEl) {
+        app.dom.irStartBtnEl.textContent = isEditMode ? "Lưu thay đổi" : "Bắt đầu học";
+    }
+    if (app.dom.irSignalTypeSelectEl) {
+        app.dom.irSignalTypeSelectEl.disabled = isEditMode || app.state.isLearningIr;
+    }
+    if (app.dom.irRfFrequencySelectEl) {
+        app.dom.irRfFrequencySelectEl.disabled = isEditMode || app.state.isLearningIr;
+    }
+    if (app.dom.irCurrentDeviceNameEl && functionName && isEditMode) {
+        app.dom.irCurrentDeviceNameEl.textContent = `${app.dom.irCurrentDeviceNameEl.textContent} • ${functionName}`;
+    }
+}
+
+function openIrLearnModalForFunction(device, fn) {
+    if (!device || !fn) {
+        return;
+    }
+    openIrLearnModal();
+    app.state.pendingLearnContext = {
+        mode: "learn",
+        deviceId: String(device.id || ""),
+        actionKey: toPreferredLearningActionKey(fn.backendAction || fn.commandKey || ""),
+        functionName: String(fn.name || "").trim(),
+    };
+
+    syncIrDeviceSelection(device.id);
+    prefillSemanticFromActionKey(fn.backendAction || fn.commandKey || "");
+    updateIrSemanticForm();
+    setIrLearnModalMode("learn");
+
+    setIrLearnModalFeedback("");
+}
+
+function openIrEditModalForFunction(device, fn) {
+    if (!device || !fn) {
+        return;
+    }
+    const backendAction = String(fn.backendAction || fn.commandKey || "").trim();
+    const actionDetail = getActionDetails(device, backendAction);
+    if (!actionDetail) {
+        setChatStatus("Không tìm thấy metadata của action để chỉnh sửa", "error");
+        return;
+    }
+
+    openIrLearnModal();
+    app.state.pendingLearnContext = {
+        mode: "edit",
+        deviceId: String(device.id || ""),
+        actionKey: backendAction,
+        functionName: String(fn.name || "").trim(),
+    };
+
+    syncIrDeviceSelection(device.id);
+    if (app.dom.irSignalTypeSelectEl) {
+        app.dom.irSignalTypeSelectEl.value = String(actionDetail.type || device.control_type || "ir").trim().toLowerCase() === "rf" ? "rf" : "ir";
+    }
+    if (app.dom.irRfFrequencySelectEl) {
+        const rfValue = String(actionDetail.rf_frequency || device.rf_frequency || "").trim();
+        app.dom.irRfFrequencySelectEl.value = rfValue === "315" || rfValue === "433" ? rfValue : "";
+    }
+    prefillSemanticFromActionDetail(actionDetail, backendAction);
+    if (app.dom.irActionPhrasesInputEl) {
+        app.dom.irActionPhrasesInputEl.value = Array.isArray(actionDetail.phrases) ? actionDetail.phrases.join("\n") : "";
+    }
+    updateIrSemanticForm();
+    updateIrSignalTypeForm();
+    setIrLearnModalMode("edit", fn.name || backendAction);
+    setIrLearnModalFeedback("");
+}
+
+function clearFunctionDeleteArmedState(exceptItem = null) {
+    app.dom.deviceControlFunctionsEl?.querySelectorAll("[data-function-item].is-delete-armed").forEach((item) => {
+        if (exceptItem && item === exceptItem) {
+            return;
+        }
+        item.classList.remove("is-delete-armed");
+    });
+}
+
+function removeFunctionLocally(deviceId, functionId, commandKey) {
+    const device = getDeviceById(deviceId);
+    if (!device) {
+        return null;
+    }
+
+    const currentFunctions = Array.isArray(device.functions) ? device.functions : [];
+    const nextFunctions = currentFunctions.filter((fn) => {
+        const sameId = functionId && String(fn.id || "") === String(functionId || "");
+        const sameCommand = commandKey && String(fn.commandKey || "").toLowerCase() === String(commandKey || "").toLowerCase();
+        return !(sameId || sameCommand);
+    });
+
+    updateDeviceRecord(deviceId, (current) => ({ ...current, functions: nextFunctions }));
+    persistCustomFunctionsForDevice(deviceId, nextFunctions);
+    app.state.deviceStateMap.set(deviceId, getDeviceById(deviceId));
+    renderDevices(app.state.deviceInventory);
+    return getDeviceById(deviceId);
+}
+
+async function handleDeleteFunctionButton({ deviceId, functionId, functionName, commandKey, backendAction, learned }) {
+    const device = getDeviceById(deviceId);
+    if (!device) {
+        return;
+    }
+
+    const normalizedFunctionName = String(functionName || "nút").trim();
+    const normalizedBackendAction = String(backendAction || commandKey || "").trim();
+    const isLearned = Boolean(learned);
+    const isLocalOnly = !isLearned;
+
+    const confirmed = window.confirm(
+        isLearned
+            ? `Xóa nút "${normalizedFunctionName}"?\n\nHệ thống sẽ xóa action đã học khỏi thiết bị và xóa file IR/RF liên quan nếu không còn action nào dùng chung.`
+            : `Xóa nút "${normalizedFunctionName}" khỏi giao diện điều khiển?`
+    );
+    if (!confirmed) {
+        return;
+    }
+
+    setChatStatus(`Đang xóa nút ${normalizedFunctionName}...`, "processing");
+
+    try {
+        if (isLocalOnly) {
+            removeFunctionLocally(deviceId, functionId, commandKey);
+            setChatStatus("Đã xóa nút chức năng", "live");
+            addChatMessage("system", `Đã xóa nút "${normalizedFunctionName}" trên ${device.name || deviceId}.`, Date.now(), {
+                fingerprint: `device-function-local-delete-${deviceId}-${functionId || commandKey}`,
+            });
+            return;
+        }
+
+        const { result } = await fetchJson(
+            `/api/devices/${encodeURIComponent(deviceId)}/actions/${encodeURIComponent(normalizedBackendAction)}`,
+            {
+                method: "DELETE",
+                headers: { "Content-Type": "application/json" },
+            }
+        );
+        removeFunctionLocally(deviceId, functionId, commandKey);
+        await loadDevices();
+
+        const deletedSummary = Array.isArray(result.deleted_files) && result.deleted_files.length
+            ? ` File đã xóa: ${result.deleted_files.join(", ")}.`
+            : "";
+        const skippedSummary = Array.isArray(result.skipped_files) && result.skipped_files.length
+            ? ` File giữ lại vì còn action khác dùng: ${result.skipped_files.join(", ")}.`
+            : "";
+        setChatStatus("Đã xóa nút chức năng", "live");
+        addChatMessage("system", `${result.message || `Đã xóa nút ${normalizedFunctionName}.`}${deletedSummary}${skippedSummary}`, Date.now(), {
+            fingerprint: `device-function-delete-${deviceId}-${normalizedBackendAction}`,
+        });
+    } catch (error) {
+        if (!error.isAuth) {
+            setChatStatus("Không xóa được nút chức năng", "error");
+            addChatMessage("system", `Không xóa được nút "${normalizedFunctionName}": ${error.message}`, Date.now(), {
+                isError: true,
+                fingerprint: `device-function-delete-error-${deviceId}-${normalizedBackendAction || commandKey}`,
+            });
+        }
+    }
 }
 
 function renderDeviceControlPage() {
@@ -543,7 +993,7 @@ function renderDeviceControlPage() {
                 app.dom.deviceControlFunctionsEl.innerHTML = '<div class="empty-device-actions">Không tìm thấy thiết bị cần điều khiển.</div>';
             }
         } else {
-            closeDeviceControlPage();
+            closeDeviceControlPage({ navigate: false });
         }
         return;
     }
@@ -561,18 +1011,124 @@ function renderDeviceControlPage() {
         : '<div class="empty-device-actions">Thiết bị này chưa có function button. Hãy thêm button đầu tiên ở cuối trang.</div>';
 
     bindDeviceControlActions();
+    updateDeviceActionButtons(device.id, device, false);
 }
 
 function bindDeviceControlActions() {
+    if (!hasBoundFunctionDeleteDismissListener) {
+        document.addEventListener("pointerdown", (event) => {
+            const target = event.target;
+            if (target instanceof Node && target.closest("[data-function-item]")) {
+                return;
+            }
+            clearFunctionDeleteArmedState();
+        });
+        hasBoundFunctionDeleteDismissListener = true;
+    }
+
     app.dom.deviceControlFunctionsEl?.querySelectorAll("[data-device-function]").forEach((button) => {
-        button.addEventListener("click", () => {
+        let longPressTimer = null;
+
+        const clearLongPressTimer = () => {
+            if (longPressTimer) {
+                window.clearTimeout(longPressTimer);
+                longPressTimer = null;
+            }
+        };
+
+        button.addEventListener("pointerdown", (event) => {
             if (button.disabled) {
                 return;
             }
+            if (event.pointerType === "mouse" && event.button !== 0) {
+                return;
+            }
+            clearLongPressTimer();
+            longPressTimer = window.setTimeout(() => {
+                const functionItem = button.closest("[data-function-item]");
+                if (!functionItem) {
+                    return;
+                }
+                clearFunctionDeleteArmedState(functionItem);
+                functionItem.classList.add("is-delete-armed");
+                button.dataset.longPressTriggered = "true";
+                if (typeof navigator.vibrate === "function") {
+                    navigator.vibrate(25);
+                }
+            }, FUNCTION_BUTTON_LONG_PRESS_MS);
+        });
+
+        button.addEventListener("pointerup", clearLongPressTimer);
+        button.addEventListener("pointercancel", clearLongPressTimer);
+        button.addEventListener("pointerleave", clearLongPressTimer);
+        button.addEventListener("contextmenu", (event) => event.preventDefault());
+
+        button.addEventListener("click", () => {
+            if (button.dataset.longPressTriggered === "true") {
+                button.dataset.longPressTriggered = "false";
+                return;
+            }
+            if (button.disabled) {
+                return;
+            }
+            clearFunctionDeleteArmedState();
             const deviceId = button.dataset.deviceFunction;
             const commandKey = button.dataset.commandKey;
             const backendAction = button.dataset.backendAction || commandKey;
+            const functionName = button.dataset.functionName || commandKey || "Function";
+            const functionLearned = button.dataset.functionLearned === "true";
+
+            if (!functionLearned) {
+                const device = getDeviceById(deviceId);
+                openIrLearnModalForFunction(device, {
+                    name: functionName,
+                    commandKey,
+                    backendAction,
+                });
+                return;
+            }
+
             sendDeviceCommand(deviceId, backendAction, button, { commandKey });
+        });
+    });
+
+    app.dom.deviceControlFunctionsEl?.querySelectorAll("[data-function-delete]").forEach((deleteBtn) => {
+        deleteBtn.addEventListener("click", async (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            const functionItem = deleteBtn.closest("[data-function-item]");
+            if (!functionItem?.classList.contains("is-delete-armed")) {
+                return;
+            }
+
+            clearFunctionDeleteArmedState();
+            await handleDeleteFunctionButton({
+                deviceId: String(deleteBtn.dataset.functionDelete || ""),
+                functionId: String(deleteBtn.dataset.functionId || ""),
+                functionName: String(deleteBtn.dataset.functionName || ""),
+                commandKey: String(deleteBtn.dataset.commandKey || ""),
+                backendAction: String(deleteBtn.dataset.backendAction || ""),
+                learned: deleteBtn.dataset.functionLearned === "true",
+            });
+        });
+    });
+
+    app.dom.deviceControlFunctionsEl?.querySelectorAll("[data-function-edit]").forEach((editBtn) => {
+        editBtn.addEventListener("click", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            const deviceId = String(editBtn.dataset.functionEdit || "");
+            const device = getDeviceById(deviceId);
+            if (!device) {
+                return;
+            }
+            openIrEditModalForFunction(device, {
+                id: String(editBtn.dataset.functionId || ""),
+                name: String(editBtn.dataset.functionName || ""),
+                commandKey: String(editBtn.dataset.commandKey || ""),
+                backendAction: String(editBtn.dataset.backendAction || ""),
+                learned: true,
+            });
         });
     });
 }
@@ -594,6 +1150,7 @@ function renderDeviceControlSkeleton(device) {
         : '<div class="empty-device-actions">Đang tải điều khiển thiết bị...</div>';
 
     bindDeviceControlActions();
+    updateDeviceActionButtons(device.id, device, false);
 }
 
 export function openDeviceControlPage(deviceId) {
@@ -603,7 +1160,7 @@ export function openDeviceControlPage(deviceId) {
     }
     cacheOpenedDevice(device);
     if (!isDeviceControlRoute()) {
-        window.location.href = `/device-control?device_id=${encodeURIComponent(device.id)}&device_name=${encodeURIComponent(device.name || "")}`;
+        window.location.assign(buildDeviceControlHref(device));
         return;
     }
     if (!app.dom.deviceControlPageEl) {
@@ -620,7 +1177,7 @@ export function openDeviceControlPage(deviceId) {
 
 export function closeDeviceControlPage({ navigate = true } = {}) {
     if (isDeviceControlRoute() && navigate) {
-        window.location.href = "/";
+        window.location.assign("/index");
         return;
     }
     app.state.currentView = "device-center";
@@ -646,6 +1203,59 @@ export function closeAddFunctionButtonModal() {
     app.dom.addFunctionButtonFormEl?.reset();
     setAddFunctionButtonFeedback("");
     setAddFunctionButtonLoadingState(false);
+}
+
+export async function openDeviceScheduleModal() {
+    if (!app.state.isAuthenticated || !app.state.currentDeviceControlId || app.state.isScheduleSubmitting) {
+        return;
+    }
+    const device = getDeviceById(app.state.currentDeviceControlId);
+    if (!device) {
+        return;
+    }
+
+    setDeviceScheduleFeedback("");
+    app.dom.deviceScheduleFormEl?.reset();
+    if (app.dom.deviceScheduleDeviceNameEl) {
+        app.dom.deviceScheduleDeviceNameEl.textContent = device.name || device.id || "Thiết bị hiện tại";
+    }
+    if (app.dom.deviceScheduleHourInputEl) {
+        app.dom.deviceScheduleHourInputEl.value = "";
+    }
+    if (app.dom.deviceScheduleMinuteInputEl) {
+        app.dom.deviceScheduleMinuteInputEl.value = "";
+    }
+    if (app.dom.deviceScheduleRepeatInputEl) {
+        app.dom.deviceScheduleRepeatInputEl.checked = false;
+    }
+    setDeviceScheduleAction("power.on");
+    app.state.deviceSchedules = [];
+    renderDeviceScheduleList();
+
+    app.dom.deviceScheduleModalEl?.classList.add("is-visible");
+    app.dom.deviceScheduleModalEl?.setAttribute("aria-hidden", "false");
+    window.setTimeout(() => app.dom.deviceScheduleHourInputEl?.focus(), 0);
+
+    try {
+        await loadDeviceSchedules(device.id);
+    } catch (error) {
+        if (!error.isAuth) {
+            setDeviceScheduleFeedback(error.message || "Không tải được danh sách lịch hẹn.");
+        }
+    }
+}
+
+export function closeDeviceScheduleModal() {
+    if (app.state.isScheduleSubmitting) {
+        return;
+    }
+    app.dom.deviceScheduleModalEl?.classList.remove("is-visible");
+    app.dom.deviceScheduleModalEl?.setAttribute("aria-hidden", "true");
+    app.dom.deviceScheduleFormEl?.reset();
+    app.state.deviceSchedules = [];
+    renderDeviceScheduleList();
+    setDeviceScheduleFeedback("");
+    setDeviceScheduleLoadingState(false);
 }
 
 export function renderDevices(devices) {
@@ -838,6 +1448,7 @@ export async function submitAddFunctionButton(event) {
 
     const nextFunction = buildFunctionRecord(rawName, commandSlug, {
         backendAction: commandSlug,
+        learned: false,
         source: "custom",
     });
     const existingFunctions = Array.isArray(device.functions) ? device.functions : [];
@@ -861,37 +1472,115 @@ export async function submitAddFunctionButton(event) {
     closeAddFunctionButtonModal();
 }
 
+export async function submitDeviceSchedule(event) {
+    event.preventDefault();
+    if (!app.state.isAuthenticated || !app.state.currentDeviceControlId || app.state.isScheduleSubmitting) {
+        return;
+    }
+
+    const device = getDeviceById(app.state.currentDeviceControlId);
+    const hour = String(app.dom.deviceScheduleHourInputEl?.value || "").trim();
+    const minute = String(app.dom.deviceScheduleMinuteInputEl?.value || "").trim();
+    const action = String(app.dom.deviceScheduleActionInputEl?.value || "power.on").trim();
+    const repeat = Boolean(app.dom.deviceScheduleRepeatInputEl?.checked);
+
+    if (!device) {
+        setDeviceScheduleFeedback("Không tìm thấy thiết bị đang mở.");
+        return;
+    }
+    if (hour === "" || minute === "") {
+        setDeviceScheduleFeedback("Vui lòng nhập đủ giờ và phút.");
+        return;
+    }
+    if ((app.state.deviceSchedules || []).length >= 2) {
+        setDeviceScheduleFeedback("Vui lòng xóa bớt lịch hẹn trước khi tạo mới");
+        return;
+    }
+
+    setDeviceScheduleFeedback("");
+    setDeviceScheduleLoadingState(true);
+
+    try {
+        const { result } = await fetchJson(`/api/devices/${encodeURIComponent(device.id)}/schedules`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                hour: Number.parseInt(hour, 10),
+                minute: Number.parseInt(minute, 10),
+                action,
+                repeat,
+            }),
+        });
+        const createdSchedule = result.schedule || null;
+        if (createdSchedule) {
+            app.state.deviceSchedules = [...app.state.deviceSchedules, createdSchedule].sort((a, b) => {
+                const hourDiff = Number(a.hour || 0) - Number(b.hour || 0);
+                if (hourDiff !== 0) return hourDiff;
+                const minuteDiff = Number(a.minute || 0) - Number(b.minute || 0);
+                if (minuteDiff !== 0) return minuteDiff;
+                return String(a.id || "").localeCompare(String(b.id || ""));
+            });
+            renderDeviceScheduleList();
+        } else {
+            await loadDeviceSchedules(device.id);
+        }
+
+        const successText = result.message || "Đã tạo lịch hẹn thiết bị.";
+        setDeviceScheduleFeedback(successText, "success");
+    } catch (error) {
+        if (!error.isAuth) {
+            setDeviceScheduleFeedback(error.message || "Không lưu được lịch hẹn.");
+        }
+    } finally {
+        setDeviceScheduleLoadingState(false);
+    }
+}
+
 function updateDeviceActionButtons(deviceId, device, processing = false) {
     const currentState = getEffectiveDeviceState(device);
+    const currentAction = getEffectiveActiveAction(device);
     const cardEl = document.querySelector(`[data-device-id="${deviceId}"]`);
     const buttons = Array.from(cardEl?.querySelectorAll("[data-device-action]") || []);
 
     buttons.forEach((button) => {
         const action = button.dataset.deviceAction;
-        const isTogglePair = ["on", "off", "turn_on", "turn_off", "power.on", "power.off"].includes(action);
-        const isAllowedNextAction = currentState === "on"
-            ? ["off", "turn_off", "power.off"].includes(action)
+        const isTogglePair = ["on", "off", "bat", "tat", "turn_on", "turn_off", "power.on", "power.off"].includes(action);
+        const isCurrentStateAction = currentState === "on"
+            ? ["on", "bat", "turn_on", "power.on"].includes(action)
             : currentState === "off"
-                ? ["on", "turn_on", "power.on"].includes(action)
-                : true;
-        button.classList.toggle("is-active", isTogglePair && isAllowedNextAction);
-        button.classList.toggle("is-inactive", isTogglePair && !isAllowedNextAction);
-        button.setAttribute("aria-pressed", isTogglePair && isAllowedNextAction ? "true" : "false");
-        button.disabled = processing ? true : (isTogglePair ? !isAllowedNextAction : false);
+                ? ["off", "tat", "turn_off", "power.off"].includes(action)
+                : false;
+        const isActionActive = (currentAction && String(action || "").trim().toLowerCase() === currentAction) || (isTogglePair && isCurrentStateAction);
+        const isUnknownState = currentState !== "on" && currentState !== "off";
+        button.classList.toggle("is-active", Boolean(isActionActive));
+        button.classList.toggle("is-inactive", Boolean(!isActionActive && (currentAction || !isUnknownState)));
+        button.setAttribute("aria-pressed", isTogglePair && isCurrentStateAction ? "true" : "false");
+        button.disabled = processing;
     });
 
     if (String(app.state.currentDeviceControlId || "") === String(deviceId || "")) {
         app.dom.deviceControlFunctionsEl?.querySelectorAll("[data-device-function]").forEach((button) => {
             const commandKey = String(button.dataset.commandKey || "");
-            const isTogglePair = ["turn_on", "turn_off", "on", "off", "power.on", "power.off"].includes(commandKey);
-            const isAllowedNextAction = currentState === "on"
-                ? ["turn_off", "off", "power.off"].includes(commandKey)
+            const isLearned = button.dataset.functionLearned === "true";
+            if (!isLearned) {
+                button.classList.remove("is-active", "is-inactive");
+                button.disabled = processing;
+                return;
+            }
+            const backendAction = String(button.dataset.backendAction || commandKey || "").trim().toLowerCase();
+            const isTogglePair = ["turn_on", "turn_off", "on", "off", "bat", "tat", "power.on", "power.off"].includes(commandKey)
+                || ["turn_on", "turn_off", "on", "off", "bat", "tat", "power.on", "power.off"].includes(backendAction);
+            const isCurrentStateAction = currentState === "on"
+                ? ["turn_on", "on", "bat", "power.on"].includes(commandKey) || ["turn_on", "on", "bat", "power.on"].includes(backendAction)
                 : currentState === "off"
-                    ? ["turn_on", "on", "power.on"].includes(commandKey)
-                    : true;
-            button.classList.toggle("is-active", isTogglePair && isAllowedNextAction);
-            button.classList.toggle("is-inactive", isTogglePair && !isAllowedNextAction);
-            button.disabled = processing ? true : (isTogglePair ? !isAllowedNextAction : false);
+                    ? ["turn_off", "off", "tat", "power.off"].includes(commandKey) || ["turn_off", "off", "tat", "power.off"].includes(backendAction)
+                    : false;
+            const normalizedCommandKey = String(commandKey || "").trim().toLowerCase();
+            const isActionActive = [normalizedCommandKey, backendAction].filter(Boolean).includes(currentAction) || (isTogglePair && isCurrentStateAction);
+            const isUnknownState = currentState !== "on" && currentState !== "off";
+            button.classList.toggle("is-active", Boolean(isActionActive));
+            button.classList.toggle("is-inactive", Boolean(!isActionActive && (currentAction || !isUnknownState)));
+            button.disabled = processing;
         });
     }
 }
@@ -939,6 +1628,7 @@ function applyOptimisticDeviceState(deviceId, action) {
     const optimisticState = {
         ...current,
         state: action,
+        active_action: action,
         state_verified: false,
         last_command: action,
         last_command_status: "sent",
@@ -1005,19 +1695,24 @@ export async function sendDeviceCommand(deviceId, action, buttonEl, options = {}
     }
 
     const functionButtons = app.dom.deviceControlFunctionsEl?.querySelectorAll("[data-device-function]") || [];
+    const functionDeleteButtons = app.dom.deviceControlFunctionsEl?.querySelectorAll("[data-function-delete]") || [];
     const previousState = { ...(app.state.deviceStateMap.get(deviceId) || {}) };
     const commandKey = String(options.commandKey || action || "").trim();
     const device = getDeviceById(deviceId);
+    const silentChat = options.silentChat !== false;
 
     functionButtons.forEach((button) => {
         button.disabled = true;
         button.classList.add("is-loading");
     });
+    functionDeleteButtons.forEach((deleteButton) => {
+        deleteButton.disabled = true;
+    });
     if (buttonEl) {
         buttonEl.classList.add("is-loading");
     }
 
-    if (commandKey && !["turn_on", "turn_off", "on", "off", "power.on", "power.off"].includes(commandKey)) {
+    if (!silentChat && commandKey && !["turn_on", "turn_off", "on", "off", "power.on", "power.off"].includes(commandKey)) {
         addChatMessage("system", `Đang gửi function "${commandKey}" xuống backend. Nếu Broadlink chưa có lệnh thật, backend có thể trả về cảnh báo.`, Date.now(), {
             fingerprint: `device-function-warning-${deviceId}-${commandKey}`,
         });
@@ -1031,11 +1726,6 @@ export async function sendDeviceCommand(deviceId, action, buttonEl, options = {}
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ device_id: deviceId, action }),
-        });
-
-        const replyText = result.reply_text || `Đã ${formatActionLabel(commandKey).toLowerCase()} thiết bị ${device?.name || deviceId}.`;
-        addChatMessage("assistant", replyText, Date.now(), {
-            fingerprint: `device-control-${deviceId}-${action}`,
         });
 
         if (result.intent?.device) {
@@ -1060,25 +1750,20 @@ export async function sendDeviceCommand(deviceId, action, buttonEl, options = {}
         app.state.deviceStateMap.set(deviceId, previousState);
         updateDeviceRecord(deviceId, (current) => ({ ...current, ...previousState }));
         updateDeviceState(deviceId, previousState, false);
-        addChatMessage("system", `Không thể điều khiển thiết bị: ${error.message}`, Date.now(), {
-            isError: true,
-            fingerprint: `device-control-error-${deviceId}-${action}`,
-        });
+        if (!silentChat) {
+            addChatMessage("system", `Không thể điều khiển thiết bị: ${error.message}`, Date.now(), {
+                isError: true,
+                fingerprint: `device-control-error-${deviceId}-${action}`,
+            });
+        }
         setChatStatus("Có lỗi khi điều khiển thiết bị", "error");
     } finally {
         functionButtons.forEach((button) => button.classList.remove("is-loading"));
+        functionDeleteButtons.forEach((deleteButton) => {
+            deleteButton.disabled = false;
+        });
         updateDeviceActionButtons(deviceId, app.state.deviceStateMap.get(deviceId) || previousState, false);
     }
-}
-
-export function inferActionKeyFromFilename(filename) {
-    const safeFilename = normalizeIrFilenameInput(filename).replace(/\.(bin|json)$/i, "");
-    const parts = safeFilename.split("_").filter(Boolean);
-    const actionToken = parts[parts.length - 1] || "";
-    if (!actionToken) return "power.on";
-    if (actionToken === "on") return "power.on";
-    if (actionToken === "off") return "power.off";
-    return actionToken.replaceAll("_", ".");
 }
 
 export async function learnIrCommand(event) {
@@ -1087,25 +1772,18 @@ export async function learnIrCommand(event) {
         return;
     }
 
-    const deviceId = String(app.dom.irDeviceSelectEl?.value || "").trim();
+    const deviceId = String(app.state.currentDeviceControlId || "").trim();
     const selectedDevice = getDeviceById(deviceId);
     const templateId = String(selectedDevice?.template_id || "").trim();
-    const deviceName = String(selectedDevice?.name || app.dom.irDeviceNameInputEl?.value || "").trim();
+    const deviceName = String(selectedDevice?.name || "").trim();
     const signalType = String(app.dom.irSignalTypeSelectEl?.value || selectedDevice?.control_type || "ir").trim().toLowerCase();
     const rfFrequency = String(app.dom.irRfFrequencySelectEl?.value || selectedDevice?.rf_frequency || "").trim();
-    const filename = normalizeIrFilenameInput(app.dom.irFilenameInputEl?.value || "");
     const semanticKind = String(app.dom.irSemanticKindSelectEl?.value || "power.on").trim();
     const semanticValue = String(app.dom.irSemanticValueInputEl?.value || "").trim();
     const actionPhrases = parseMultilinePhrases(app.dom.irActionPhrasesInputEl?.value || "");
 
     if (!deviceId || !selectedDevice) {
-        setIrLearnModalFeedback("Vui lòng chọn thiết bị đã thêm trước khi học lệnh.");
-        app.dom.irDeviceSelectEl?.focus();
-        return;
-    }
-    if (!deviceName) {
-        setIrLearnModalFeedback("Vui lòng nhập tên thiết bị.");
-        app.dom.irDeviceNameInputEl?.focus();
+        setIrLearnModalFeedback("Không tìm thấy thiết bị đang mở để học lệnh.");
         return;
     }
     if (!["ir", "rf"].includes(signalType)) {
@@ -1118,26 +1796,25 @@ export async function learnIrCommand(event) {
         app.dom.irRfFrequencySelectEl?.focus();
         return;
     }
-    if (!filename) {
-        setIrLearnModalFeedback(signalType === "rf" ? "Vui lòng nhập tên file .json." : "Vui lòng nhập tên file .bin.");
-        app.dom.irFilenameInputEl?.focus();
-        return;
-    }
-    if (!isValidLearnFilename(filename, signalType)) {
-        setIrLearnModalFeedback(signalType === "rf"
-            ? "Tên file RF không hợp lệ. Chỉ cần có đuôi .json và không được để trống."
-            : "Tên file IR không hợp lệ. Chỉ cần có đuôi .bin và không được để trống.");
-        app.dom.irFilenameInputEl?.focus();
-        return;
-    }
 
     let actionPayload;
     try {
-        actionPayload = buildSemanticActionPayload(semanticKind, semanticValue, inferActionKeyFromFilename);
+        actionPayload = buildSemanticActionPayload(semanticKind, semanticValue, () => "power.on");
     } catch (error) {
         setIrLearnModalFeedback(error.message || "Thông tin ngữ nghĩa lệnh chưa hợp lệ.");
         app.dom.irSemanticValueInputEl?.focus();
         return;
+    }
+
+    const pendingLearnContext = app.state.pendingLearnContext;
+    const forcedActionKey = normalizeActionKey(pendingLearnContext?.actionKey);
+    const isMatchingPendingDevice = normalizeActionKey(pendingLearnContext?.deviceId) === normalizeActionKey(deviceId);
+    const isEditMode = String(pendingLearnContext?.mode || "").trim().toLowerCase() === "edit";
+    if (forcedActionKey && isMatchingPendingDevice) {
+        actionPayload = {
+            ...actionPayload,
+            actionKey: forcedActionKey,
+        };
     }
 
     const phrasesPayload = actionPhrases.length
@@ -1146,63 +1823,85 @@ export async function learnIrCommand(event) {
 
     setIrLearnModalFeedback("");
     setIrLearnLoadingState(true);
-    setChatStatus(`Broadlink đang học tín hiệu ${signalType.toUpperCase()}...`, "processing");
+    setChatStatus(isEditMode ? "Đang cập nhật semantic action..." : `Broadlink đang học tín hiệu ${signalType.toUpperCase()}...`, "processing");
 
     try {
-        await fetchJson("/api/ir/learn", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                filename,
-                device_name: deviceName,
-                signal_type: signalType,
-                rf_frequency: signalType === "rf" ? Number.parseInt(rfFrequency, 10) : null,
-            }),
-        });
+        let result;
+        let learnedFile = "";
 
-        const actionRecord = {
-            type: signalType,
-            file: filename,
-            semantic: actionPayload.semantic,
-            phrases: phrasesPayload,
-        };
-        if (signalType === "rf") {
-            actionRecord.rf_frequency = Number.parseInt(rfFrequency, 10);
+        if (isEditMode) {
+            ({ result } = await fetchJson(
+                `/api/devices/${encodeURIComponent(deviceId)}/actions/${encodeURIComponent(actionPayload.actionKey)}`,
+                {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        action: {
+                            semantic: actionPayload.semantic,
+                            phrases: phrasesPayload,
+                        },
+                    }),
+                }
+            ));
+        } else {
+            const { result: learnResult } = await fetchJson("/api/ir/learn", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    device_name: deviceName,
+                    signal_type: signalType,
+                    rf_frequency: signalType === "rf" ? Number.parseInt(rfFrequency, 10) : null,
+                }),
+            });
+
+            const actionRecord = {
+                type: signalType,
+                file: String(learnResult?.filename || "").trim(),
+                semantic: actionPayload.semantic,
+                phrases: phrasesPayload,
+            };
+            if (signalType === "rf") {
+                actionRecord.rf_frequency = Number.parseInt(rfFrequency, 10);
+            }
+            if (!actionRecord.file) {
+                throw new Error("Backend không trả về tên file đã học.");
+            }
+            learnedFile = actionRecord.file;
+
+            ({ result } = await fetchJson("/api/device-learn/save", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    template_id: templateId,
+                    device: {
+                        id: selectedDevice.id,
+                        name: deviceName,
+                        control_type: signalType,
+                        rf_frequency: signalType === "rf" ? Number.parseInt(rfFrequency, 10) : null,
+                        aliases: Array.isArray(selectedDevice.aliases) ? selectedDevice.aliases : [deviceName],
+                    },
+                    actions: { [actionPayload.actionKey]: actionRecord },
+                    presets: {},
+                }),
+            }));
         }
 
-        const { result } = await fetchJson("/api/device-learn/save", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                template_id: templateId,
-                device: {
-                    id: selectedDevice.id,
-                    name: deviceName,
-                    control_type: signalType,
-                    rf_frequency: signalType === "rf" ? Number.parseInt(rfFrequency, 10) : null,
-                    aliases: Array.isArray(selectedDevice.aliases) ? selectedDevice.aliases : [deviceName],
-                },
-                actions: { [actionPayload.actionKey]: actionRecord },
-                presets: {},
-            }),
-        });
-
-        const successText = result.message || "Học lệnh và lưu thiết bị thành công";
+        const successText = result.message || (isEditMode ? "Cập nhật semantic thành công" : "Học lệnh và lưu thiết bị thành công");
         setIrLearnModalFeedback(successText, "success");
-        setChatStatus("Học lệnh thành công", "live");
+        setChatStatus(isEditMode ? "Đã cập nhật semantic action" : "Học lệnh thành công", "live");
         await loadDevices();
-        addChatMessage("assistant", successText, Date.now(), {
-            fingerprint: `device-learn-save-${result.device_id || Date.now()}`,
+        addChatMessage("assistant", isEditMode ? successText : `${successText}. File lưu: ${learnedFile}`, Date.now(), {
+            fingerprint: `${isEditMode ? "device-action-update" : "device-learn-save"}-${result.device_id || Date.now()}`,
         });
         window.setTimeout(() => closeIrLearnModal({ force: true }), 500);
     } catch (error) {
         if (!error.isAuth) {
-            const message = error.message || "Học lệnh thất bại";
+            const message = error.message || (isEditMode ? "Cập nhật semantic thất bại" : "Học lệnh thất bại");
             setIrLearnModalFeedback(message);
-            setChatStatus("Có lỗi khi học lệnh", "error");
+            setChatStatus(isEditMode ? "Có lỗi khi cập nhật semantic" : "Có lỗi khi học lệnh", "error");
             addChatMessage("system", message, Date.now(), {
                 isError: true,
-                fingerprint: `device-learn-save-error-${Date.now()}`,
+                fingerprint: `${isEditMode ? "device-action-update-error" : "device-learn-save-error"}-${Date.now()}`,
             });
         }
     } finally {
@@ -1212,6 +1911,7 @@ export async function learnIrCommand(event) {
 
 export function handleSnapshot(payload) {
     app.state.deviceInventory = normalizeDeviceInventory(payload?.devices || []);
+    writeCachedDeviceInventory(app.state.deviceInventory);
     renderIrDeviceOptions();
     renderDevices(app.state.deviceInventory);
 }

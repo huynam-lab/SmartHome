@@ -573,7 +573,6 @@ class MusicPlayer:
         return {"ok": False, "message": message, "data": data or {}}
 
     def _log(self, level: str, message: str, payload: Optional[Dict[str, Any]] = None) -> None:
-        print(f"[MUSIC] {message}")
         log_event(source="music-player", level=level, message=message, payload=payload or {})
 
 

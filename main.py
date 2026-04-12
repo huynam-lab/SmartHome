@@ -3,7 +3,7 @@ import time
 from datetime import timedelta
 from queue import Empty, Full, Queue
 
-from flask import Flask, render_template, request, send_from_directory, session
+from flask import Flask, redirect, render_template, request, send_from_directory, session
 from flask_socketio import SocketIO, disconnect
 
 from api.routes import api_bp
@@ -14,11 +14,12 @@ from core.event_bus import log_event
 from core.realtime import emit_system_log, init_socketio
 from core.voice_state import is_assistant_speaking
 from devices.broadlink.discover import prewarm_device_cache
+from services.device_schedule_service import start_device_schedule_worker
 from speech.speech_to_text import print_microphone_list, recognize_once
 from speech.tts import speak_text
 
 
-socketio = SocketIO(cors_allowed_origins="*", async_mode="threading")
+socketio = SocketIO(cors_allowed_origins="*", async_mode="threading", manage_session=False)
 
 
 def create_app():
@@ -36,7 +37,18 @@ def create_app():
         PERMANENT_SESSION_LIFETIME=timedelta(hours=12),
     )
 
+    @app.after_request
+    def apply_security_headers(response):
+        # Cho phep micro cho chinh origin hien tai. Neu sau nay nhung iframe
+        # khac origin thi can bo sung allow="microphone" va Permissions-Policy phu hop.
+        response.headers["Permissions-Policy"] = "microphone=(self)"
+        return response
+
     @app.get("/")
+    def root_index():
+        return redirect("/index", code=302)
+
+    @app.get("/index")
     def index():
         return render_template(
             "index.html",
@@ -124,7 +136,6 @@ def run_jetson_voice_listener(stop_event: threading.Event, voice_queue: Queue):
         if is_assistant_speaking():
             continue
 
-        print(f"[VOICE] user_text={text}")
         log_event(source="jetson-mic", message="Nghe duoc cau noi", level="info", payload={"text": text})
 
         try:
@@ -157,14 +168,10 @@ def run_jetson_command_worker(stop_event: threading.Event, voice_queue: Queue):
         # "ve thoi" chi dung xu ly lenh, KHONG tat he thong
         if is_exit_command(text):
             result = process_text_command(text, source="jetson-mic")
-            print(f"[AI] reply={result.get('reply_text', '')}")
-            print("[VOICE] resume listening")
             voice_queue.task_done()
             continue
 
         result = process_text_command(text, source="jetson-mic")
-        print(f"[AI] reply={result.get('reply_text', '')}")
-        print("[VOICE] resume listening")
         voice_queue.task_done()
 
 
@@ -194,8 +201,8 @@ if __name__ == "__main__":
     )
     listener_thread.start()
     worker_thread.start()
-
     threading.Thread(target=prewarm_device_cache, daemon=True).start()
+    threading.Thread(target=start_device_schedule_worker, args=(stop_event,), daemon=True).start()
 
     if RUN_WEB_SERVER:
         app = create_app()

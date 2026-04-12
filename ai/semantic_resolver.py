@@ -97,6 +97,162 @@ def _extract_semantic_operation(action_config: Dict[str, Any]) -> str:
     return str(semantic.get("operation") or "").strip().lower()
 
 
+def _extract_requested_semantic_value(operation: str, semantic_info: Dict[str, Any]) -> Any:
+    if operation == "set_temperature":
+        return semantic_info.get("requested_temperature_c")
+    if operation == "off_after":
+        return semantic_info.get("requested_duration_seconds")
+    if operation == "set_mode":
+        return semantic_info.get("requested_mode")
+    if operation == "set_fan_speed":
+        return semantic_info.get("requested_fan_speed")
+    if operation == "set_swing":
+        return semantic_info.get("requested_swing")
+    if operation == "set_sleep":
+        return semantic_info.get("requested_sleep")
+    return None
+
+
+def _extract_action_semantic_value(operation: str, semantic: Dict[str, Any]) -> Any:
+    if operation == "set_temperature":
+        return semantic.get("temperature_c")
+    if operation == "off_after":
+        return semantic.get("duration_seconds")
+    if operation == "set_mode":
+        return semantic.get("mode")
+    if operation == "set_fan_speed":
+        return semantic.get("fan_speed")
+    if operation == "set_swing":
+        return semantic.get("swing")
+    if operation == "set_sleep":
+        return semantic.get("enabled")
+    return None
+
+
+def _semantic_value_matches(operation: str, action_value: Any, requested_value: Any) -> bool:
+    if requested_value is None:
+        return False
+    if operation in {"set_temperature", "off_after"}:
+        try:
+            return int(action_value) == int(requested_value)
+        except (TypeError, ValueError):
+            return False
+    if operation == "set_sleep":
+        return bool(action_value) is bool(requested_value)
+    return str(action_value or "").strip().lower() == str(requested_value or "").strip().lower()
+
+
+def _find_exact_semantic_action(device_id: str, semantic_info: Dict[str, Any]) -> Optional[str]:
+    if not device_id:
+        return None
+
+    target_operation = str(semantic_info.get("operation") or "").strip().lower()
+    if not target_operation:
+        return None
+
+    registry = get_registry()
+    registry.reload()
+    device = registry.get_device(device_id) or {}
+    actions_map = dict(device.get("actions") or {})
+
+    for action_key, action_config in actions_map.items():
+        semantic = action_config.get("semantic") or {}
+        operation = str(semantic.get("operation") or "").strip().lower()
+        if operation != target_operation:
+            continue
+
+        requested_value = _extract_requested_semantic_value(target_operation, semantic_info)
+        action_value = _extract_action_semantic_value(target_operation, semantic)
+        if target_operation in {"on", "off"}:
+            return str(action_key or "").strip()
+        if _semantic_value_matches(target_operation, action_value, requested_value):
+            return str(action_key or "").strip()
+
+    return None
+
+
+def _find_nearest_semantic_action(device_id: str, semantic_info: Dict[str, Any]) -> Optional[str]:
+    if not device_id:
+        return None
+
+    target_operation = str(semantic_info.get("operation") or "").strip().lower()
+    requested_value = _extract_requested_semantic_value(target_operation, semantic_info)
+    if requested_value is None or target_operation not in {"set_temperature", "off_after"}:
+        return None
+
+    registry = get_registry()
+    registry.reload()
+    device = registry.get_device(device_id) or {}
+    actions_map = dict(device.get("actions") or {})
+
+    ranked_candidates: List[Tuple[float, str]] = []
+    for action_key, action_config in actions_map.items():
+        semantic = action_config.get("semantic") or {}
+        operation = str(semantic.get("operation") or "").strip().lower()
+        if operation != target_operation:
+            continue
+
+        action_value = _extract_action_semantic_value(target_operation, semantic)
+        try:
+            distance = abs(int(action_value) - int(requested_value))
+        except (TypeError, ValueError):
+            continue
+        ranked_candidates.append((float(distance), str(action_key or "").strip()))
+
+    if not ranked_candidates:
+        return None
+
+    ranked_candidates.sort(key=lambda item: (item[0], item[1]))
+    best_distance = ranked_candidates[0][0]
+    same_distance = [item for item in ranked_candidates if item[0] == best_distance]
+    if len(same_distance) != 1:
+        return None
+
+    max_distance = 1 if target_operation == "set_temperature" else 300
+    if best_distance > max_distance:
+        return None
+    return same_distance[0][1]
+
+
+def _find_supporting_power_action(device_id: str, target_operation: str) -> Optional[str]:
+    normalized_target = str(target_operation or "").strip().lower()
+    if normalized_target not in {"on", "off"}:
+        return None
+
+    registry = get_registry()
+    registry.reload()
+    device = registry.get_device(device_id) or {}
+    actions_map = dict(device.get("actions") or {})
+
+    for action_key, action_config in actions_map.items():
+        semantic = action_config.get("semantic") or {}
+        operation = str(semantic.get("operation") or "").strip().lower()
+        if operation == normalized_target:
+            return str(action_key or "").strip()
+    return None
+
+
+def _build_action_sequence(device_id: str, resolved_action: str, semantic_info: Dict[str, Any]) -> List[str]:
+    normalized_action = str(resolved_action or "").strip()
+    if not device_id or not normalized_action:
+        return []
+
+    semantic_operation = str(semantic_info.get("operation") or "").strip().lower()
+    verb_operation = str(semantic_info.get("verb_operation") or "").strip().lower()
+    if verb_operation != "on":
+        return [normalized_action]
+
+    if semantic_operation not in {"set_temperature", "set_mode", "set_fan_speed", "set_swing", "set_sleep"}:
+        return [normalized_action]
+
+    power_on_action = _find_supporting_power_action(device_id, "on")
+    sequence: List[str] = []
+    if power_on_action and power_on_action != normalized_action:
+        sequence.append(power_on_action)
+    sequence.append(normalized_action)
+    return sequence
+
+
 def _score_device(text_n: str, device: Dict[str, Any]) -> Dict[str, Any]:
     terms = _build_device_terms(device)
     exact_terms: List[str] = []
@@ -144,6 +300,7 @@ def _score_context_overlap(text_n: str, phrase: str) -> float:
 
 def _score_action(text_n: str, action_key: str, action_config: Dict[str, Any], semantic_info: Dict[str, Any]) -> Dict[str, Any]:
     operation = _extract_semantic_operation(action_config)
+    semantic = action_config.get("semantic") or {}
     phrases = [normalize_text(item) for item in list(action_config.get("phrases") or []) if normalize_text(item)]
 
     phrase_score = 0.0
@@ -164,11 +321,34 @@ def _score_action(text_n: str, action_key: str, action_config: Dict[str, Any], s
     elif matched_phrases:
         operation_score = 0.7
 
+    parameter_score = 0.0
+    parameter_penalty = 0.0
+    requested_value = _extract_requested_semantic_value(operation, semantic_info)
+    action_value = _extract_action_semantic_value(operation, semantic)
+    if requested_value is not None:
+        if operation in {"set_temperature", "off_after"}:
+            try:
+                diff = abs(int(action_value) - int(requested_value))
+            except (TypeError, ValueError):
+                parameter_penalty = 0.35
+            else:
+                if diff == 0:
+                    parameter_score = 1.25
+                elif operation == "set_temperature":
+                    parameter_penalty = min(0.45, 0.12 * diff)
+                else:
+                    parameter_penalty = min(0.45, diff / 600)
+        elif _semantic_value_matches(operation, action_value, requested_value):
+            parameter_score = 1.25
+        else:
+            parameter_penalty = 0.35
+
     return {
         "action": action_key,
         "operation": operation,
-        "score": max(phrase_score, operation_score, context_score * 0.95),
+        "score": max(phrase_score, operation_score, context_score * 0.95, parameter_score),
         "context_score": context_score,
+        "parameter_penalty": parameter_penalty,
         "matched_phrases": matched_phrases,
     }
 
@@ -198,6 +378,7 @@ def _rank_candidates(text_n: str, semantic_info: Dict[str, Any]) -> List[Dict[st
                 total_score += 0.25
             if device_score.get("generic_only") and float(action_score.get("context_score", 0.0)) < 0.4:
                 total_score -= 0.18
+            total_score -= float(action_score.get("parameter_penalty", 0.0))
 
             ranked.append(
                 {
@@ -243,6 +424,23 @@ def _build_clarification(top_candidates: List[Dict[str, Any]], semantic_info: Di
         return f"Em thấy có nhiều thiết bị phù hợp: {', '.join(devices[:3])}. Anh/chị muốn điều khiển thiết bị nào ạ?"
 
     return "Anh/chị nói rõ thêm giúp em tên thiết bị hoặc vị trí thiết bị ạ."
+
+
+def _build_missing_semantic_message(device_name: str, semantic_info: Dict[str, Any]) -> str:
+    operation = str(semantic_info.get("operation") or "").strip().lower()
+    if operation == "set_temperature":
+        return f"{device_name} chưa có lệnh đã học cho mức nhiệt này."
+    if operation == "set_mode":
+        return f"{device_name} chưa có lệnh đã học cho chế độ này."
+    if operation == "set_fan_speed":
+        return f"{device_name} chưa có lệnh đã học cho mức quạt này."
+    if operation == "set_swing":
+        return f"{device_name} chưa có lệnh đã học cho chế độ đảo gió này."
+    if operation == "set_sleep":
+        return f"{device_name} chưa có lệnh đã học cho chế độ ngủ này."
+    if operation == "off_after":
+        return f"{device_name} chưa có lệnh đã học cho mốc hẹn giờ này."
+    return f"{device_name} chưa có lệnh đã học phù hợp."
 
 
 def _top_distinct_device_candidates(ranked: List[Dict[str, Any]], tolerance: float = 0.08) -> List[Dict[str, Any]]:
@@ -293,6 +491,7 @@ def resolve_device_command(text: str) -> Dict[str, Any]:
     semantic_info = parse_command_semantics(text)
     text_n = semantic_info.get("normalized_text") or normalize_text(text)
     learned_action_info = semantic_info.get("learned_action_info") or {}
+    semantic_operation = str(semantic_info.get("operation") or "").strip().lower()
 
     if not semantic_info.get("is_control_request"):
         result = {
@@ -310,20 +509,45 @@ def resolve_device_command(text: str) -> Dict[str, Any]:
         and learned_action_info.get("action")
         and not learned_action_info.get("ambiguous")
     ):
-        result = {
-            "status": "resolved",
-            "intent": {
-                "device": learned_action_info.get("device_id"),
-                "action": learned_action_info.get("action"),
-            },
-            "message": "",
-            "semantic": semantic_info,
-            "candidates": list(learned_action_info.get("matched_actions") or []),
-            "resolved_device": learned_action_info.get("device_id"),
-            "resolved_name": learned_action_info.get("device_name"),
-        }
-        log_event(source="semantic-resolver", level="success", message="Resolve bang learned phrase", payload=result)
-        return result
+        exact_semantic_action = None
+        if semantic_operation not in {"", "on", "off"}:
+            exact_semantic_action = _find_exact_semantic_action(str(learned_action_info.get("device_id") or ""), semantic_info)
+            if not exact_semantic_action:
+                exact_semantic_action = _find_nearest_semantic_action(str(learned_action_info.get("device_id") or ""), semantic_info)
+        if semantic_operation not in {"", "on", "off"} and not exact_semantic_action:
+            learned_action_info = {}
+        elif exact_semantic_action and exact_semantic_action != learned_action_info.get("action"):
+            learned_action_info = {
+                **learned_action_info,
+                "action": exact_semantic_action,
+            }
+        if learned_action_info:
+            registry = get_registry()
+            registry.reload()
+            resolved_action_info = registry.resolve_action_config(
+                str(learned_action_info.get("device_id") or ""),
+                str(learned_action_info.get("action") or ""),
+            )
+            result = {
+                "status": "resolved",
+                "intent": {
+                    "device": learned_action_info.get("device_id"),
+                    "action": learned_action_info.get("action"),
+                    "action_sequence": _build_action_sequence(
+                        str(learned_action_info.get("device_id") or ""),
+                        str(learned_action_info.get("action") or ""),
+                        semantic_info,
+                    ),
+                },
+                "message": "",
+                "semantic": semantic_info,
+                "candidates": list(learned_action_info.get("matched_actions") or []),
+                "resolved_device": learned_action_info.get("device_id"),
+                "resolved_name": learned_action_info.get("device_name"),
+                "action_config": dict(resolved_action_info.get("action_config") or {}),
+            }
+            log_event(source="semantic-resolver", level="success", message="Resolve bang learned phrase", payload=result)
+            return result
 
     ranked = _rank_candidates(text_n, semantic_info)
     if not ranked:
@@ -338,9 +562,61 @@ def resolve_device_command(text: str) -> Dict[str, Any]:
         return result
 
     top = ranked[0]
+    distinct_devices = _top_distinct_device_candidates(ranked)[:3]
+    second_device_score = 0.0
+    for item in ranked[1:]:
+        if item.get("device_id") != top.get("device_id"):
+            second_device_score = float(item.get("score", 0.0))
+            break
+
+    exact_semantic_action = None
+    if len(distinct_devices) == 1 or (float(top.get("score", 0.0)) - second_device_score) >= AUTO_RESOLVE_MIN_MARGIN:
+        exact_semantic_action = _find_exact_semantic_action(str(top.get("device_id") or ""), semantic_info)
+        if not exact_semantic_action:
+            exact_semantic_action = _find_nearest_semantic_action(str(top.get("device_id") or ""), semantic_info)
+
+    if exact_semantic_action:
+        registry = get_registry()
+        registry.reload()
+        resolved_action_info = registry.resolve_action_config(
+            str(top.get("device_id") or ""),
+            str(exact_semantic_action or ""),
+        )
+        result = {
+            "status": "resolved",
+            "intent": {
+                "device": top.get("device_id"),
+                "action": exact_semantic_action,
+                "action_sequence": _build_action_sequence(
+                    str(top.get("device_id") or ""),
+                    str(exact_semantic_action or ""),
+                    semantic_info,
+                ),
+            },
+            "message": "",
+            "semantic": semantic_info,
+            "candidates": ranked[:5],
+            "resolved_device": top.get("device_id"),
+            "resolved_name": top.get("device_name"),
+            "action_config": dict(resolved_action_info.get("action_config") or {}),
+        }
+        log_event(source="semantic-resolver", level="success", message="Resolve bang semantic metadata", payload=result)
+        return result
+
+    if semantic_operation not in {"", "on", "off"} and (len(distinct_devices) == 1 or (float(top.get("score", 0.0)) - second_device_score) >= AUTO_RESOLVE_MIN_MARGIN):
+        result = {
+            "status": "unresolved",
+            "intent": None,
+            "message": _build_missing_semantic_message(str(top.get("device_name") or top.get("device_id") or "Thiết bị"), semantic_info),
+            "semantic": semantic_info,
+            "candidates": ranked[:5],
+        }
+        log_event(source="semantic-resolver", level="warning", message=result["message"], payload=result)
+        return result
+
     clarify_message = _should_clarify(top, ranked, semantic_info)
     if clarify_message:
-        top_candidates = _top_distinct_device_candidates(ranked)[:3] or ranked[:3]
+        top_candidates = distinct_devices or ranked[:3]
         result = {
             "status": "clarify",
             "intent": None,
@@ -356,6 +632,11 @@ def resolve_device_command(text: str) -> Dict[str, Any]:
         "intent": {
             "device": top.get("device_id"),
             "action": top.get("action"),
+            "action_sequence": _build_action_sequence(
+                str(top.get("device_id") or ""),
+                str(top.get("action") or ""),
+                semantic_info,
+            ),
         },
         "message": "",
         "semantic": semantic_info,
@@ -363,5 +644,12 @@ def resolve_device_command(text: str) -> Dict[str, Any]:
         "resolved_device": top.get("device_id"),
         "resolved_name": top.get("device_name"),
     }
+    registry = get_registry()
+    registry.reload()
+    resolved_action_info = registry.resolve_action_config(
+        str(top.get("device_id") or ""),
+        str(top.get("action") or ""),
+    )
+    result["action_config"] = dict(resolved_action_info.get("action_config") or {})
     log_event(source="semantic-resolver", level="success", message="Resolve thiet bi thanh cong", payload=result)
     return result

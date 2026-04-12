@@ -80,6 +80,135 @@ def _split_phrases(raw_phrases: Any) -> List[str]:
     return []
 
 
+def _normalize_bool(value: Any) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    normalized = _normalize_key(value)
+    if normalized in {"1", "true", "on", "enable", "enabled", "yes"}:
+        return True
+    if normalized in {"0", "false", "off", "disable", "disabled", "no"}:
+        return False
+    return None
+
+
+def _normalize_choice_value(value: Any, choices: Dict[str, List[str]], field_label: str) -> str:
+    normalized = _normalize_key(value)
+    for canonical, aliases in choices.items():
+        if normalized == canonical or normalized in aliases:
+            return canonical
+    raise ValueError(f"{field_label} không hợp lệ: {value}")
+
+
+def _normalize_semantic_payload(raw_semantic: Any) -> Dict[str, Any]:
+    if not isinstance(raw_semantic, dict) or not raw_semantic:
+        return {}
+
+    semantic = {str(key): value for key, value in raw_semantic.items() if value not in {None, ""}}
+    operation = _normalize_key(semantic.get("operation"))
+    domain = _normalize_key(semantic.get("domain"))
+
+    if operation in {"on", "off"}:
+        return {
+            "domain": domain or "power",
+            "operation": operation,
+        }
+
+    if operation == "off_after":
+        try:
+            duration_seconds = int(semantic.get("duration_seconds"))
+        except (TypeError, ValueError):
+            raise ValueError("duration_seconds phải là số nguyên dương.")
+        if duration_seconds <= 0:
+            raise ValueError("duration_seconds phải lớn hơn 0.")
+        return {
+            "domain": domain or "timer",
+            "operation": operation,
+            "duration_seconds": duration_seconds,
+        }
+
+    if operation == "set_temperature":
+        try:
+            temperature_c = int(semantic.get("temperature_c"))
+        except (TypeError, ValueError):
+            raise ValueError("temperature_c phải là số nguyên hợp lệ.")
+        if temperature_c <= 0:
+            raise ValueError("temperature_c phải lớn hơn 0.")
+        return {
+            "domain": domain or "climate",
+            "operation": operation,
+            "temperature_c": temperature_c,
+        }
+
+    if operation == "set_mode":
+        mode = _normalize_choice_value(
+            semantic.get("mode"),
+            {
+                "cool": ["mat", "lam mat"],
+                "dry": ["kho", "hut am"],
+                "heat": ["nong", "suoi"],
+                "fan": ["quat", "gio"],
+                "auto": ["tu dong"],
+            },
+            "mode",
+        )
+        return {
+            "domain": domain or "climate",
+            "operation": operation,
+            "mode": mode,
+        }
+
+    if operation == "set_fan_speed":
+        fan_speed = _normalize_choice_value(
+            semantic.get("fan_speed"),
+            {
+                "low": ["thap", "nhe", "yeu", "muc1", "muc_1"],
+                "medium": ["trung_binh", "trung binh", "vua", "muc2", "muc_2"],
+                "high": ["cao", "manh", "muc3", "muc_3"],
+                "auto": ["tu dong"],
+                "quiet": ["im", "silent"],
+                "turbo": ["manh nhat", "boost"],
+            },
+            "fan_speed",
+        )
+        return {
+            "domain": domain or "climate",
+            "operation": operation,
+            "fan_speed": fan_speed,
+        }
+
+    if operation == "set_swing":
+        swing = _normalize_choice_value(
+            semantic.get("swing"),
+            {
+                "on": ["bat"],
+                "off": ["tat"],
+                "auto": ["tu dong"],
+                "vertical": ["doc"],
+                "horizontal": ["ngang"],
+            },
+            "swing",
+        )
+        return {
+            "domain": domain or "climate",
+            "operation": operation,
+            "swing": swing,
+        }
+
+    if operation == "set_sleep":
+        enabled = _normalize_bool(semantic.get("enabled"))
+        if enabled is None:
+            enabled = _normalize_bool(semantic.get("sleep"))
+        if enabled is None:
+            raise ValueError("enabled phải là on/off hoặc true/false cho set_sleep.")
+        return {
+            "domain": domain or "climate",
+            "operation": operation,
+            "enabled": enabled,
+        }
+
+    return semantic
+
+
 def _infer_action_semantic(entry_key: str) -> Dict[str, Any]:
     normalized_key = _normalize_key(entry_key)
     if normalized_key in {"on", "power.on"}:
@@ -95,6 +224,22 @@ def _infer_action_semantic(entry_key: str) -> Dict[str, Any]:
     temp_match = re.fullmatch(r"(?:cool|temp|temperature)[._](\d+)", normalized_key)
     if temp_match:
         return {"domain": "climate", "operation": "set_temperature", "temperature_c": int(temp_match.group(1))}
+
+    mode_match = re.fullmatch(r"(?:climate[._])?mode[._]([a-z0-9_]+)", normalized_key)
+    if mode_match:
+        return _normalize_semantic_payload({"operation": "set_mode", "mode": mode_match.group(1)})
+
+    fan_match = re.fullmatch(r"(?:climate[._])?(?:fan|fan_speed)[._]([a-z0-9_]+)", normalized_key)
+    if fan_match:
+        return _normalize_semantic_payload({"operation": "set_fan_speed", "fan_speed": fan_match.group(1)})
+
+    swing_match = re.fullmatch(r"(?:climate[._])?swing[._]([a-z0-9_]+)", normalized_key)
+    if swing_match:
+        return _normalize_semantic_payload({"operation": "set_swing", "swing": swing_match.group(1)})
+
+    sleep_match = re.fullmatch(r"(?:climate[._])?sleep[._]([a-z0-9_]+)", normalized_key)
+    if sleep_match:
+        return _normalize_semantic_payload({"operation": "set_sleep", "enabled": sleep_match.group(1)})
 
     return {}
 
@@ -201,8 +346,11 @@ def _normalize_action_record(entry_key: str, raw_entry: Any, default_type: str) 
                 phrases.append(phrase)
         if phrases:
             normalized["phrases"] = phrases
-        semantic = payload.get("semantic")
-        if isinstance(semantic, dict) and semantic:
+        label = _normalize_text(payload.get("label"))
+        if label:
+            normalized["label"] = label
+        semantic = _normalize_semantic_payload(payload.get("semantic"))
+        if semantic:
             normalized["semantic"] = deepcopy(semantic)
         else:
             inferred_semantic = _infer_action_semantic(entry_key)
@@ -516,5 +664,148 @@ def delete_device(
         "deleted_files": deleted_files,
         "skipped_files": skipped_files,
         "missing_files": missing_files,
+        "warnings": warnings,
+    }
+
+
+def _resolve_action_alias_for_delete(actions: Dict[str, Any], action_key: str) -> str:
+    normalized = _normalize_text(action_key)
+    if normalized in actions:
+        return normalized
+
+    alias_pairs = {
+        "on": "power.on",
+        "off": "power.off",
+        "turn_on": "power.on",
+        "turn_off": "power.off",
+        "power.on": "on",
+        "power.off": "off",
+    }
+    mapped = alias_pairs.get(normalized)
+    if mapped and mapped in actions:
+        return mapped
+    return normalized
+
+
+def delete_device_action(
+    device_id: str,
+    action_key: str,
+    device_map_file: str = DEVICE_MAP_FILE,
+    ir_packet_dir: str = IR_PACKET_DIR,
+    rf_packet_dir: str = RF_PACKET_DIR,
+) -> Dict[str, Any]:
+    normalized_device_id = slugify_device_id(device_id)
+    if not normalized_device_id:
+        raise ValueError("Thiếu device_id hợp lệ để xóa action.")
+
+    store, warnings = load_device_map_store(device_map_file)
+    devices = dict(store.get("devices") or {})
+    device_config = dict(devices.get(normalized_device_id) or {})
+    if not device_config:
+        raise ValueError(f"Không tìm thấy thiết bị '{normalized_device_id}'.")
+
+    actions = dict(device_config.get("actions") or {})
+    resolved_action_key = _resolve_action_alias_for_delete(actions, action_key)
+    if not resolved_action_key or resolved_action_key not in actions:
+        raise ValueError(f"Không tìm thấy action '{action_key}' trong thiết bị '{normalized_device_id}'.")
+
+    removed_action = dict(actions.pop(resolved_action_key) or {})
+    device_config["actions"] = actions
+    devices[normalized_device_id] = device_config
+    store["devices"] = devices
+    save_device_map_store(store, device_map_file=device_map_file)
+
+    candidate_refs = set()
+    removed_type = _normalize_key(removed_action.get("type") or device_config.get("control_type"))
+    removed_file = os.path.basename(str(removed_action.get("file") or "").strip())
+    if removed_type in {"ir", "rf"} and removed_file:
+        candidate_refs.add((removed_type, removed_file))
+
+    referenced_by_others = set()
+    for remaining_config in devices.values():
+        referenced_by_others.update(_collect_declared_packet_files(dict(remaining_config or {})))
+
+    deleted_files: List[str] = []
+    skipped_files: List[str] = []
+    missing_files: List[str] = []
+    packet_dirs = {"ir": ir_packet_dir, "rf": rf_packet_dir}
+
+    for packet_type, packet_file in sorted(candidate_refs):
+        if (packet_type, packet_file) in referenced_by_others:
+            skipped_files.append(packet_file)
+            continue
+
+        packet_dir = packet_dirs.get(packet_type)
+        packet_path = os.path.join(packet_dir, packet_file) if packet_dir else ""
+        if not packet_path or not os.path.isfile(packet_path):
+            missing_files.append(packet_file)
+            continue
+
+        os.remove(packet_path)
+        deleted_files.append(packet_file)
+
+    return {
+        "ok": True,
+        "message": f"Đã xóa action '{resolved_action_key}' khỏi thiết bị '{device_config.get('name') or normalized_device_id}'.",
+        "device_id": normalized_device_id,
+        "device_name": device_config.get("name") or normalized_device_id,
+        "action_key": resolved_action_key,
+        "deleted_files": deleted_files,
+        "skipped_files": skipped_files,
+        "missing_files": missing_files,
+        "warnings": warnings,
+    }
+
+
+def update_device_action(
+    device_id: str,
+    action_key: str,
+    action_payload: Dict[str, Any],
+    device_map_file: str = DEVICE_MAP_FILE,
+) -> Dict[str, Any]:
+    normalized_device_id = slugify_device_id(device_id)
+    if not normalized_device_id:
+        raise ValueError("Thiếu device_id hợp lệ để cập nhật action.")
+
+    store, warnings = load_device_map_store(device_map_file)
+    devices = dict(store.get("devices") or {})
+    device_config = dict(devices.get(normalized_device_id) or {})
+    if not device_config:
+        raise ValueError(f"Không tìm thấy thiết bị '{normalized_device_id}'.")
+
+    actions = dict(device_config.get("actions") or {})
+    resolved_action_key = _resolve_action_alias_for_delete(actions, action_key)
+    if not resolved_action_key or resolved_action_key not in actions:
+        raise ValueError(f"Không tìm thấy action '{action_key}' trong thiết bị '{normalized_device_id}'.")
+
+    existing_action = dict(actions.get(resolved_action_key) or {})
+    merged_action = {
+        **existing_action,
+        **dict(action_payload or {}),
+        "type": action_payload.get("type") or existing_action.get("type") or device_config.get("control_type"),
+        "file": action_payload.get("file") or existing_action.get("file"),
+        "rf_frequency": action_payload.get("rf_frequency", existing_action.get("rf_frequency")),
+        "phrases": action_payload.get("phrases", existing_action.get("phrases")),
+        "semantic": action_payload.get("semantic", existing_action.get("semantic")),
+        "label": action_payload.get("label", existing_action.get("label")),
+    }
+
+    actions[resolved_action_key] = _normalize_action_record(
+        resolved_action_key,
+        merged_action,
+        default_type=_normalize_control_type(device_config.get("control_type") or "ir", fallback="ir"),
+    )
+    device_config["actions"] = actions
+    devices[normalized_device_id] = device_config
+    store["devices"] = devices
+    save_device_map_store(store, device_map_file=device_map_file)
+
+    return {
+        "ok": True,
+        "message": f"Đã cập nhật action '{resolved_action_key}' cho thiết bị '{device_config.get('name') or normalized_device_id}'.",
+        "device_id": normalized_device_id,
+        "device_name": device_config.get("name") or normalized_device_id,
+        "action_key": resolved_action_key,
+        "action": actions[resolved_action_key],
         "warnings": warnings,
     }

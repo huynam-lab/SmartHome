@@ -2,13 +2,110 @@ import threading
 import time
 from collections import deque
 from itertools import count
+import json
+import sys
 from typing import Any, Dict, List, Optional
+
+from config import DEBUG_VOICE
 
 
 _MAX_EVENTS = 500
 _EVENTS = deque(maxlen=_MAX_EVENTS)
 _LOCK = threading.Lock()
 _COUNTER = count(1)
+_NOISY_CONSOLE_SOURCES = {
+    "tts",
+    "stt",
+    "jetson-mic",
+    "voice-worker",
+    "web-chat",
+    "web-voice",
+    "web-text",
+    "intent-parser",
+    "semantic-resolver",
+    "gemini",
+}
+_REDACTED_PAYLOAD_KEYS = {
+    "text",
+    "reply_text",
+    "message",
+    "stdout",
+    "stderr",
+    "accumulated_text",
+    "last_tts_text",
+}
+
+
+def _summarize_console_value(value: Any) -> Any:
+    if isinstance(value, str):
+        compact = " ".join(value.split())
+        if len(compact) > 96:
+            compact = f"{compact[:93]}..."
+        return compact
+    if isinstance(value, dict):
+        return {str(k): _summarize_console_value(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_summarize_console_value(item) for item in value[:8]]
+    return value
+
+
+def _sanitize_console_payload(event: Dict[str, Any]) -> Dict[str, Any]:
+    payload = event.get("payload") or {}
+    if not isinstance(payload, dict):
+        return {"payload_type": type(payload).__name__}
+
+    sanitized: Dict[str, Any] = {}
+    for key, value in payload.items():
+        key_text = str(key)
+        if key_text in _REDACTED_PAYLOAD_KEYS and value not in {None, ""}:
+            text_value = " ".join(str(value).split())
+            sanitized[key_text] = f"<redacted len={len(text_value)}>"
+            continue
+        sanitized[key_text] = _summarize_console_value(value)
+    return sanitized
+
+
+def _should_print_console_event(event: Dict[str, Any]) -> bool:
+    level = str(event.get("level") or "").lower()
+    source = str(event.get("source") or "").strip().lower()
+    if DEBUG_VOICE:
+        return True
+    if level in {"error", "warning"}:
+        return True
+    return source not in _NOISY_CONSOLE_SOURCES
+
+
+def _should_include_console_payload(event: Dict[str, Any]) -> bool:
+    if DEBUG_VOICE:
+        return True
+    level = str(event.get("level") or "").lower()
+    return level in {"error", "warning"}
+
+
+def _format_console_event(event: Dict[str, Any]) -> str:
+    ts = int(event.get("ts") or 0)
+    timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts / 1000 if ts else time.time()))
+    source = str(event.get("source") or "unknown")
+    level = str(event.get("level") or "info").upper()
+    message = str(event.get("message") or "").strip()
+    payload = _sanitize_console_payload(event) if _should_include_console_payload(event) else {}
+
+    base = f"[{timestamp}] [{level}] [{source}] {message}"
+    if not payload:
+        return base
+
+    try:
+        payload_text = json.dumps(payload, ensure_ascii=False, default=str, sort_keys=True)
+    except Exception:
+        payload_text = repr(payload)
+    return f"{base} | payload={payload_text}"
+
+
+def _print_console_event(event: Dict[str, Any]) -> None:
+    if not _should_print_console_event(event):
+        return
+    stream = sys.stderr if str(event.get("level") or "").lower() in {"error", "warning"} else sys.stdout
+    print(_format_console_event(event), file=stream, flush=True)
 
 
 def log_event(source: str, message: str, level: str = "info", payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -24,6 +121,7 @@ def log_event(source: str, message: str, level: str = "info", payload: Optional[
     with _LOCK:
         _EVENTS.append(event)
 
+    _print_console_event(event)
     return event
 
 

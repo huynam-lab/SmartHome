@@ -58,10 +58,16 @@ export function formatActionLabel(action) {
     const labels = {
         on: "Bật",
         off: "Tắt",
+        bat: "Bật",
+        tat: "Tắt",
         turn_on: "Bật",
         turn_off: "Tắt",
         "power.on": "Bật",
         "power.off": "Tắt",
+        "climate.set_mode": "Đặt chế độ",
+        "climate.set_fan_speed": "Đặt tốc độ quạt",
+        "climate.set_swing": "Đặt đảo gió",
+        "climate.set_sleep": "Đặt chế độ ngủ",
     };
     return labels[action] || String(action || "").replaceAll("_", " ");
 }
@@ -85,16 +91,42 @@ export function getEffectiveDeviceState(device) {
     if (device.state === "on" || device.state === "off") {
         return device.state;
     }
+    if (device.state === "bat" || device.state === "tat") {
+        return device.state === "bat" ? "on" : "off";
+    }
     if (device.state === "power.on" || device.state === "power.off") {
         return device.state === "power.on" ? "on" : "off";
     }
     if (device.state === "turn_on" || device.state === "turn_off") {
         return device.state === "turn_on" ? "on" : "off";
     }
-    if (device.last_command_status === "sent" && ["on", "off", "turn_on", "turn_off", "power.on", "power.off"].includes(device.last_command)) {
-        return ["on", "turn_on", "power.on"].includes(device.last_command) ? "on" : "off";
+    if (device.last_command_status === "sent" && ["on", "off", "turn_on", "turn_off", "power.on", "power.off", "bat", "tat"].includes(device.last_command)) {
+        return ["on", "turn_on", "power.on", "bat"].includes(device.last_command) ? "on" : "off";
     }
     return "unknown";
+}
+
+export function getEffectiveActiveAction(device) {
+    if (!device) {
+        return "";
+    }
+    const activeAction = String(device.active_action || "").trim().toLowerCase();
+    if (activeAction) {
+        return activeAction;
+    }
+    const lastCommand = String(device.last_command || "").trim().toLowerCase();
+    if (lastCommand && String(device.last_command_status || "").trim().toLowerCase() === "sent") {
+        return lastCommand;
+    }
+
+    const effectiveState = getEffectiveDeviceState(device);
+    if (effectiveState === "on") {
+        return "on";
+    }
+    if (effectiveState === "off") {
+        return "off";
+    }
+    return "";
 }
 
 export function formatCommandStatus(device) {
@@ -112,8 +144,8 @@ export function formatCommandStatus(device) {
 }
 
 export function getActionButtonClass(action) {
-    if (action === "on" || action === "turn_on" || action === "power.on") return "btn-on";
-    if (action === "off" || action === "turn_off" || action === "power.off") return "btn-off";
+    if (action === "on" || action === "bat" || action === "turn_on" || action === "power.on") return "btn-on";
+    if (action === "off" || action === "tat" || action === "turn_off" || action === "power.off") return "btn-off";
     return "btn-default";
 }
 
@@ -176,12 +208,44 @@ export function getIrSemanticConfig(kind) {
             requiresValue: true,
             label: "Nhiệt độ",
             hint: "Ví dụ: nhập 24 để tạo lệnh đặt điều hòa 24 độ.",
-            min: "16",
-            step: "1",
             placeholder: "Ví dụ: 24",
+        },
+        "climate.set_mode": {
+            requiresValue: true,
+            label: "Chế độ",
+            hint: "Nhập: cool, dry, heat, fan hoặc auto.",
+            placeholder: "Ví dụ: cool",
+        },
+        "climate.set_fan_speed": {
+            requiresValue: true,
+            label: "Tốc độ quạt",
+            hint: "Nhập: low, medium, high, auto, quiet hoặc turbo.",
+            placeholder: "Ví dụ: low",
+        },
+        "climate.set_swing": {
+            requiresValue: true,
+            label: "Đảo gió",
+            hint: "Nhập: on, off, auto, vertical hoặc horizontal.",
+            placeholder: "Ví dụ: on",
+        },
+        "climate.set_sleep": {
+            requiresValue: true,
+            label: "Chế độ ngủ",
+            hint: "Nhập: on hoặc off.",
+            placeholder: "Ví dụ: on",
         },
     };
     return configs[kind] || configs["power.on"];
+}
+
+function normalizeSemanticChoice(rawValue, aliases, fieldLabel) {
+    const normalized = String(rawValue || "").trim().toLowerCase();
+    for (const [canonical, values] of Object.entries(aliases)) {
+        if (normalized === canonical || values.includes(normalized)) {
+            return canonical;
+        }
+    }
+    throw new Error(`Giá trị ${fieldLabel} chưa hợp lệ.`);
 }
 
 export function buildSemanticActionPayload(kind, rawValue, inferActionKeyFromFilename) {
@@ -214,6 +278,56 @@ export function buildSemanticActionPayload(kind, rawValue, inferActionKeyFromFil
             semantic: { domain: "climate", operation: "set_temperature", temperature_c: temperature },
         };
     }
+    if (normalizedKind === "climate.set_mode") {
+        const mode = normalizeSemanticChoice(valueText, {
+            cool: ["mat", "lam mat"],
+            dry: ["kho", "hut am"],
+            heat: ["nong", "suoi"],
+            fan: ["quat"],
+            auto: ["tu dong"],
+        }, "mode");
+        return {
+            actionKey: `climate.mode.${mode}`,
+            semantic: { domain: "climate", operation: "set_mode", mode },
+        };
+    }
+    if (normalizedKind === "climate.set_fan_speed") {
+        const fanSpeed = normalizeSemanticChoice(valueText, {
+            low: ["thap", "nhe"],
+            medium: ["trung binh", "vua"],
+            high: ["cao", "manh"],
+            auto: ["tu dong"],
+            quiet: ["silent", "im"],
+            turbo: ["boost"],
+        }, "fan_speed");
+        return {
+            actionKey: `climate.fan.${fanSpeed}`,
+            semantic: { domain: "climate", operation: "set_fan_speed", fan_speed: fanSpeed },
+        };
+    }
+    if (normalizedKind === "climate.set_swing") {
+        const swing = normalizeSemanticChoice(valueText, {
+            on: ["bat"],
+            off: ["tat"],
+            auto: ["tu dong"],
+            vertical: ["doc"],
+            horizontal: ["ngang"],
+        }, "swing");
+        return {
+            actionKey: `climate.swing.${swing}`,
+            semantic: { domain: "climate", operation: "set_swing", swing },
+        };
+    }
+    if (normalizedKind === "climate.set_sleep") {
+        const sleepState = normalizeSemanticChoice(valueText, {
+            on: ["bat", "true", "1"],
+            off: ["tat", "false", "0"],
+        }, "sleep");
+        return {
+            actionKey: `climate.sleep.${sleepState}`,
+            semantic: { domain: "climate", operation: "set_sleep", enabled: sleepState === "on" },
+        };
+    }
     return { actionKey: inferActionKeyFromFilename(""), semantic: {} };
 }
 
@@ -237,6 +351,21 @@ export function buildDefaultActionPhrases(deviceName, kind, rawValue) {
             return [];
         }
         return [`bật ${targetName} ${temperature} độ`, `${targetName} ${temperature} độ`];
+    }
+    if (kind === "climate.set_mode") {
+        return [`bật ${targetName} chế độ ${String(rawValue || "").trim()}`, `${targetName} chế độ ${String(rawValue || "").trim()}`];
+    }
+    if (kind === "climate.set_fan_speed") {
+        return [`bật ${targetName} quạt ${String(rawValue || "").trim()}`, `${targetName} quạt ${String(rawValue || "").trim()}`];
+    }
+    if (kind === "climate.set_swing") {
+        return [`bật ${targetName} đảo gió ${String(rawValue || "").trim()}`, `${targetName} đảo gió ${String(rawValue || "").trim()}`];
+    }
+    if (kind === "climate.set_sleep") {
+        const value = String(rawValue || "").trim().toLowerCase();
+        return value === "off"
+            ? [`tắt chế độ ngủ ${targetName}`, `${targetName} tắt chế độ ngủ`]
+            : [`bật chế độ ngủ ${targetName}`, `${targetName} chế độ ngủ`];
     }
     return [];
 }

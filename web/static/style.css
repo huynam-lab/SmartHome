@@ -215,6 +215,7 @@ select {
 }
 
 @media (hover: none) and (pointer: coarse) {
+
     html,
     body {
         height: 100%;
@@ -918,7 +919,23 @@ h3 {
 }
 
 .chatbot-composer {
+    flex-direction: row;
+    align-items: center;
+    text-align: left;
     padding: 14px 16px;
+}
+
+.chatbot-composer .chat-actions {
+    width: auto;
+    flex: 0 0 auto;
+    margin-left: 0;
+    margin-right: auto;
+}
+
+.chatbot-composer .voice-helper {
+    margin-left: auto;
+    text-align: right;
+    align-items: flex-end;
 }
 
 .chatbot-composer .voice-helper-label {
@@ -1057,6 +1074,18 @@ h3 {
     background: var(--input-bg);
     color: var(--text-main);
     outline: none;
+}
+
+.ir-learn-readonly {
+    width: 100%;
+    min-height: 48px;
+    padding: 13px 14px;
+    border-radius: 14px;
+    border: 1px solid rgba(51, 83, 158, 0.12);
+    background: var(--input-bg);
+    color: var(--text-main);
+    display: flex;
+    align-items: center;
 }
 
 .ir-learn-field input:focus,
@@ -1278,6 +1307,11 @@ h3 {
     box-shadow: 0 16px 34px rgba(51, 83, 158, 0.1);
     transition: transform 0.24s ease, box-shadow 0.24s ease, border-color 0.24s ease;
     overflow: visible;
+    z-index: 1;
+}
+
+.device-card.is-menu-open {
+    z-index: 30;
 }
 
 .device-card-main {
@@ -1406,7 +1440,7 @@ h3 {
     width: 188px;
     padding: 10px;
     border-radius: 20px;
-    z-index: 20;
+    z-index: 40;
 }
 
 .device-card-menu::before {
@@ -1461,9 +1495,11 @@ h3 {
 
 .device-control-page {
     display: grid;
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
     gap: 18px;
     margin-top: 18px;
     padding: 22px;
+    max-height: calc(100dvh - 44px);
     border-radius: 28px;
     background:
         radial-gradient(circle at top left, rgba(127, 172, 214, 0.16), transparent 30%),
@@ -1484,6 +1520,8 @@ h3 {
 
 .device-control-header {
     display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: start;
     gap: 14px;
 }
 
@@ -1491,6 +1529,35 @@ h3 {
     justify-self: flex-start;
     min-height: 46px;
     padding-inline: 18px;
+}
+
+.device-control-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 46px;
+    height: 46px;
+    border: 0;
+    border-radius: 16px;
+    background: transparent;
+    color: var(--primary);
+    cursor: pointer;
+    transition: transform 0.2s ease, color 0.2s ease;
+}
+
+.device-control-icon-btn svg {
+    width: 28px;
+    height: 28px;
+}
+
+.device-control-icon-btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+    color: #24407f;
+}
+
+.device-control-icon-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
 }
 
 .device-control-title-wrap h2 {
@@ -1509,11 +1576,74 @@ h3 {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
     gap: 14px;
+    min-height: 0;
+    max-height: 100%;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    padding-right: 4px;
+    scrollbar-width: thin;
+}
+
+.device-function-item {
+    display: block;
+}
+
+.device-function-tools {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
 }
 
 .device-function-btn {
+    width: 100%;
     min-height: 60px;
     border: 0;
+    touch-action: manipulation;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.device-function-item.is-delete-armed .device-function-btn {
+    box-shadow: none;
+}
+
+.device-function-edit-btn,
+.device-function-delete-btn {
+    flex: 1;
+    min-height: 38px;
+    border: 1px solid rgba(211, 85, 120, 0.34);
+    border-radius: 14px;
+    background: rgba(232, 183, 212, 0.22);
+    color: #8e2f55;
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+    transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.device-function-edit-btn {
+    display: none;
+    border-color: rgba(72, 109, 181, 0.24);
+    background: rgba(109, 144, 214, 0.12);
+    color: #29498d;
+}
+
+.device-function-delete-btn {
+    display: none;
+}
+
+.device-function-item.is-delete-armed .device-function-edit-btn,
+.device-function-item.is-delete-armed .device-function-delete-btn {
+    display: block;
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.device-function-edit-btn:disabled,
+.device-function-delete-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
 }
 
 .device-add-function-btn {
@@ -1538,6 +1668,151 @@ h3 {
 .device-add-function-btn:disabled {
     opacity: 0.45;
     cursor: not-allowed;
+}
+
+.device-schedule-form {
+    gap: 18px;
+}
+
+.device-schedule-time-grid {
+    display: flex;
+    gap: 12px;
+}
+
+.device-schedule-time-grid .ir-learn-field {
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+.device-schedule-repeat-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    padding: 14px 16px;
+    border-radius: 20px;
+    background: rgba(255, 255, 255, 0.55);
+    border: 1px solid rgba(51, 83, 158, 0.08);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+}
+
+.device-schedule-repeat-row:active,
+.device-schedule-repeat-row:focus,
+.device-schedule-repeat-row:focus-visible {
+    outline: none;
+    background: rgba(255, 255, 255, 0.55);
+}
+
+.device-schedule-switch {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.device-schedule-switch input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.device-schedule-switch-track {
+    position: relative;
+    width: 72px;
+    height: 40px;
+    border-radius: 999px;
+    background: rgba(64, 70, 87, 0.18);
+    transition: background 0.2s ease, box-shadow 0.2s ease;
+}
+
+.device-schedule-switch-track::after {
+    content: "";
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: #ffffff;
+    box-shadow: 0 4px 12px rgba(22, 32, 62, 0.18);
+    transition: transform 0.2s ease;
+}
+
+.device-schedule-switch input:checked+.device-schedule-switch-track {
+    background: #35d25f;
+    box-shadow: 0 10px 20px rgba(53, 210, 95, 0.22);
+}
+
+.device-schedule-switch input:checked+.device-schedule-switch-track::after {
+    transform: translateX(32px);
+}
+
+.device-schedule-list-wrap {
+    margin-top: 18px;
+    padding-top: 18px;
+    border-top: 1px solid rgba(51, 83, 158, 0.08);
+}
+
+.device-schedule-list {
+    display: grid;
+    gap: 12px;
+    margin-top: 12px;
+    max-height: 220px;
+    overflow-y: auto;
+    padding-right: 4px;
+}
+
+.device-schedule-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 16px;
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.62);
+    border: 1px solid rgba(51, 83, 158, 0.08);
+}
+
+.device-schedule-card-content {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.device-schedule-card strong {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    margin: 0;
+}
+
+.device-schedule-card small,
+.device-schedule-empty {
+    color: var(--text-soft);
+    line-height: 1.5;
+}
+
+.device-schedule-card small {
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+
+.device-schedule-delete-btn {
+    min-width: 74px;
+    min-height: 40px;
+    flex: 0 0 auto;
+    border: 1px solid rgba(211, 85, 120, 0.24);
+    border-radius: 14px;
+    background: rgba(232, 183, 212, 0.18);
+    color: #8e2f55;
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
 }
 
 .actions {
@@ -1568,15 +1843,45 @@ h3 {
     color: var(--text-main);
 }
 
+.action-btn.is-unlearned {
+    background: rgba(61, 73, 103, 0.16);
+    color: rgba(31, 44, 74, 0.9);
+    border: 1px dashed rgba(61, 73, 103, 0.26);
+    box-shadow: none;
+    filter: saturate(0.65);
+}
+
+.action-btn.is-unlearned:hover:not(:disabled) {
+    background: rgba(61, 73, 103, 0.2);
+}
+
 .action-btn.is-active {
-    box-shadow: 0 12px 28px rgba(51, 83, 158, 0.16);
-    filter: saturate(1.12) brightness(1.08);
+    box-shadow: 0 16px 34px rgba(165, 103, 177, 0.26);
+    filter: saturate(1.16) brightness(1.06);
     transform: translateY(-1px);
+    opacity: 1;
+}
+
+.action-btn.btn-on.is-active {
+    background: linear-gradient(135deg, #8fc7ff, #33539e);
+    box-shadow: 0 18px 36px rgba(51, 83, 158, 0.28);
+    color: #ffffff;
+}
+
+.action-btn.btn-off.is-active {
+    background: linear-gradient(135deg, #f3bdd9, #b76fd3);
+    box-shadow: 0 18px 36px rgba(165, 103, 177, 0.26);
+    color: #ffffff;
+}
+
+.action-btn.btn-default.is-active {
+    background: linear-gradient(135deg, #f2b4d9, #b76fd3);
+    color: #ffffff;
 }
 
 .action-btn.is-inactive {
-    opacity: 0.4;
-    filter: grayscale(0.25) saturate(0.45) brightness(0.78);
+    opacity: 0.48;
+    filter: grayscale(0.2) saturate(0.55) brightness(0.82);
     box-shadow: none;
 }
 
@@ -1591,6 +1896,11 @@ h3 {
 .action-btn.is-inactive:disabled {
     opacity: 0.38;
     filter: grayscale(0.32) saturate(0.38) brightness(0.72);
+}
+
+.action-btn.is-active:disabled {
+    opacity: 1;
+    filter: saturate(1.1) brightness(1.04);
 }
 
 .action-btn.is-loading {
@@ -1766,6 +2076,68 @@ body.auth-locked {
     outline: none;
     font: inherit;
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.password-input-wrap {
+    position: relative;
+}
+
+.password-input-wrap input {
+    padding-right: 52px;
+}
+
+.password-toggle-btn {
+    position: absolute;
+    top: 50%;
+    right: 10px;
+    width: 36px;
+    height: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 0;
+    border-radius: 12px;
+    background: transparent;
+    color: var(--text-soft);
+    cursor: pointer;
+    transform: translateY(-50%);
+    transition: background 0.2s ease, color 0.2s ease;
+}
+
+.password-toggle-btn:hover {
+    background: rgba(127, 172, 214, 0.12);
+    color: var(--primary);
+}
+
+.password-toggle-btn:focus-visible {
+    outline: none;
+    background: rgba(127, 172, 214, 0.14);
+    box-shadow: 0 0 0 3px rgba(127, 172, 214, 0.18);
+}
+
+.password-toggle-btn svg {
+    width: 20px;
+    height: 20px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.password-toggle-btn.is-visible svg {
+    opacity: 0.82;
+}
+
+.password-toggle-btn.is-visible::after {
+    content: "";
+    position: absolute;
+    width: 22px;
+    height: 2px;
+    border-radius: 999px;
+    background: currentColor;
+    transform: rotate(-35deg);
 }
 
 .auth-field input:focus {
@@ -1980,6 +2352,7 @@ body.auth-locked {
     .device-control-page {
         padding: 16px 14px;
         border-radius: 24px;
+        max-height: calc(100dvh - 18px);
     }
 
     .device-control-functions {
@@ -2102,6 +2475,24 @@ body.auth-locked {
         align-items: flex-start;
     }
 
+    .device-control-header {
+        grid-template-columns: 1fr auto;
+    }
+
+    .device-control-title-wrap {
+        grid-column: 1 / -1;
+        order: 2;
+    }
+
+    .device-control-back-btn {
+        order: 1;
+    }
+
+    .device-control-icon-btn {
+        order: 1;
+        justify-self: end;
+    }
+
     .device-icon {
         width: 50px;
         height: 50px;
@@ -2119,6 +2510,18 @@ body.auth-locked {
     .actions .action-btn {
         flex: 1 1 50%;
         min-width: 0;
+    }
+
+    .device-schedule-repeat-row,
+    .device-schedule-card {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .device-schedule-card-content {
+        width: 100%;
+        align-items: flex-start;
+        flex-direction: column;
     }
 
     .ir-entry-grid {

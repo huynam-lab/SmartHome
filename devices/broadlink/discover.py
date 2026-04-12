@@ -87,18 +87,7 @@ def discover_devices():
 def get_first_device(force_refresh: bool = False):
     global _CACHED_DEVICE, _CACHED_AT
 
-    now = time.time()
-    cache_age = now - _CACHED_AT
     if _CACHED_DEVICE is not None and not force_refresh:
-        log_event(
-            source="broadlink-discover",
-            level="info",
-            message="Sử dụng Broadlink device từ cache",
-            payload={
-                "cache_age_seconds": cache_age,
-                "cache_stale": cache_age >= BROADLINK_CACHE_TTL_SECONDS,
-            },
-        )
         return _CACHED_DEVICE
 
     devices = discover_devices()

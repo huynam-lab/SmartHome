@@ -89,6 +89,14 @@
                         điều khiển cho {{ initial_device_name }}.{% else %}Chọn chức năng để điều khiển thiết bị.{%
                         endif %}</p>
                 </div>
+                <button id="device-schedule-trigger-btn" type="button" class="device-control-icon-btn"
+                    aria-label="Mở hẹn giờ thiết bị">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+                        stroke-linejoin="round" aria-hidden="true" focusable="false">
+                        <circle cx="12" cy="12" r="10" />
+                        <polyline points="12 6 12 12 16 14" />
+                    </svg>
+                </button>
             </header>
 
             <div id="device-control-status-banner" class="device-status-banner">
@@ -104,42 +112,12 @@
             <div id="device-control-functions" class="device-control-functions" aria-live="polite"></div>
 
             <button id="add-function-trigger-btn" type="button" class="device-add-function-btn">
-                Add function buttons
+                Thêm chức năng
             </button>
         </section>
     </main>
 
-    <section id="chatbot-popup" class="chatbot-popup is-hidden glass-card" aria-hidden="true">
-        <header class="chatbot-popup-header">
-            <div>
-                <p class="section-kicker">SmartHome AI</p>
-            </div>
-        </header>
-
-        <div id="chat-status-banner" class="chat-status-banner">
-            <span class="chat-status-dot"></span>
-            <span id="chat-status-text"> Nhận lệnh bằng giọng nói</span>
-        </div>
-
-        <div id="chat-messages" class="chat-messages" aria-live="polite"></div>
-
-        <form id="chat-form" class="chat-composer chatbot-composer" autocomplete="off">
-            <div class="voice-helper">
-                <span class="voice-helper-label">Voice Assistant</span>
-                <strong>Chạm micro để nói</strong>
-            </div>
-            <div class="chat-actions">
-                <button id="mic-btn" type="button" class="icon-btn large-mic-btn" aria-label="Bắt đầu ghi âm">
-                    <span class="icon-btn-symbol">🎙️</span>
-                </button>
-            </div>
-        </form>
-    </section>
-
-    <button id="chatbot-fab" class="chatbot-fab" type="button" aria-label="Mở chatbot" aria-controls="chatbot-popup"
-        aria-expanded="false">
-        <span class="chatbot-fab-icon" aria-hidden="true">💬</span>
-    </button>
+    {% include "partials/chatbot.html" %}
 
     <div id="add-function-button-modal" class="password-modal" aria-hidden="true">
         <div id="add-function-button-backdrop" class="password-modal-backdrop"></div>
@@ -148,7 +126,7 @@
             <div class="password-modal-head">
                 <div>
                     <p class="eyebrow">Device Function</p>
-                    <h2 id="add-function-button-modal-title">Thêm function button</h2>
+                    <h2 id="add-function-button-modal-title">Thêm chức năng</h2>
                 </div>
                 <button id="add-function-button-close-btn" type="button" class="password-close-btn" aria-label="Đóng">
                     ×
@@ -156,12 +134,12 @@
             </div>
             <form id="add-function-button-form" class="password-form" autocomplete="off">
                 <label class="auth-field" for="add-function-button-name-input">
-                    <span>Tên button</span>
-                    <input id="add-function-button-name-input" name="function_name" type="text"
-                        placeholder="Ví dụ: Tăng sáng" maxlength="120" required />
+                    <span>Tên chức năng</span>
+                    <input id="add-function-button-name-input" name="function_name" type="text" placeholder="Ví dụ: Bật"
+                        maxlength="120" required />
                 </label>
                 <div class="ir-learn-form-actions">
-                    <button id="add-function-button-submit-btn" type="submit" class="primary-btn">Lưu button</button>
+                    <button id="add-function-button-submit-btn" type="submit" class="primary-btn">Lưu</button>
                     <button id="add-function-button-cancel-btn" type="button"
                         class="primary-btn secondary-tone">Hủy</button>
                 </div>
@@ -170,37 +148,143 @@
         </section>
     </div>
 
+    <div id="device-schedule-modal" class="password-modal" aria-hidden="true">
+        <div id="device-schedule-backdrop" class="password-modal-backdrop"></div>
+        <section class="password-modal-card glass-card" role="dialog" aria-modal="true"
+            aria-labelledby="device-schedule-modal-title">
+            <div class="password-modal-head">
+                <div>
+                    <p class="eyebrow">Smart Schedule</p>
+                    <h2 id="device-schedule-modal-title">Hẹn giờ thiết bị</h2>
+                    <p id="device-schedule-modal-device-name" class="password-modal-desc">{{ initial_device_name or
+                        "Thiết bị hiện tại" }}</p>
+                </div>
+                <button id="device-schedule-close-btn" type="button" class="password-close-btn" aria-label="Đóng">
+                    ×
+                </button>
+            </div>
+            <form id="device-schedule-form" class="password-form device-schedule-form" autocomplete="off">
+                <div class="device-schedule-time-grid">
+                    <label class="ir-learn-field" for="device-schedule-hour-input">
+                        <span class="device-top-label">Giờ</span>
+                        <input id="device-schedule-hour-input" type="number" min="0" max="23" step="1" placeholder="07"
+                            required />
+                    </label>
+                    <label class="ir-learn-field" for="device-schedule-minute-input">
+                        <span class="device-top-label">Phút</span>
+                        <input id="device-schedule-minute-input" type="number" min="0" max="59" step="1"
+                            placeholder="30" required />
+                    </label>
+                </div>
+
+                <div class="ir-learn-field">
+                    <span class="device-top-label">Chế độ</span>
+                    <select id="device-schedule-action-input" aria-label="Chọn bật hoặc tắt">
+                        <option value="power.on" selected>Bật</option>
+                        <option value="power.off">Tắt</option>
+                    </select>
+                </div>
+
+                <label class="device-schedule-repeat-row" for="device-schedule-repeat-input">
+                    <div>
+                        <span class="device-top-label">Lặp lại</span>
+                    </div>
+                    <span class="device-schedule-switch">
+                        <input id="device-schedule-repeat-input" type="checkbox" />
+                        <span class="device-schedule-switch-track"></span>
+                    </span>
+                </label>
+
+                <div class="ir-learn-form-actions">
+                    <button id="device-schedule-submit-btn" type="submit" class="primary-btn">Lưu lịch</button>
+                    <button id="device-schedule-cancel-btn" type="button"
+                        class="primary-btn secondary-tone">Hủy</button>
+                </div>
+                <div id="device-schedule-modal-status" class="auth-error" aria-live="polite"></div>
+            </form>
+
+            <div class="device-schedule-list-wrap">
+                <div class="device-schedule-list-head">
+                    <span class="device-top-label">Lịch đã đặt</span>
+                </div>
+                <div id="device-schedule-list" class="device-schedule-list" aria-live="polite"></div>
+            </div>
+        </section>
+    </div>
+
+    <div id="ir-learn-modal" class="password-modal" aria-hidden="true">
+        <div id="ir-learn-backdrop" class="password-modal-backdrop"></div>
+        <section class="password-modal-card glass-card" role="dialog" aria-modal="true"
+            aria-labelledby="ir-learn-modal-title">
+            <div class="password-modal-head">
+                <div>
+                    <p class="eyebrow">Device Learning</p>
+                    <h2 id="ir-learn-modal-title">Học lệnh</h2>
+                </div>
+                <button id="ir-learn-close-btn" type="button" class="password-close-btn" aria-label="Đóng">
+                    ×
+                </button>
+            </div>
+            <form id="ir-learn-form" class="password-form ir-learn-modal-form" autocomplete="off">
+                <div class="ir-learn-field">
+                    <span class="device-top-label">Thiết bị hiện tại</span>
+                    <div id="ir-current-device-name" class="ir-learn-readonly" aria-live="polite">{{ initial_device_name
+                        or "Thiết bị hiện tại" }}</div>
+                </div>
+                <label class="ir-learn-field" for="ir-signal-type-select">
+                    <span class="device-top-label">Kiểu tín hiệu</span>
+                    <select id="ir-signal-type-select" required>
+                        <option value="ir">IR</option>
+                        <option value="rf">RF</option>
+                    </select>
+                </label>
+                <label id="ir-rf-frequency-field" class="ir-learn-field is-hidden" for="ir-rf-frequency-select">
+                    <span class="device-top-label">Tần số RF</span>
+                    <select id="ir-rf-frequency-select">
+                        <option value="">Chọn tần số RF</option>
+                        <option value="433">433 MHz</option>
+                        <option value="315">315 MHz</option>
+                    </select>
+                </label>
+                <label class="ir-learn-field" for="ir-semantic-kind-select">
+                    <span class="device-top-label">Loại hành động</span>
+                    <select id="ir-semantic-kind-select" name="semantic_kind" required>
+                        <option value="power.on">Bật</option>
+                        <option value="power.off">Tắt</option>
+                        <option value="timer.off_after">Hẹn tắt</option>
+                        <option value="climate.set_temperature">Đặt nhiệt độ</option>
+                        <option value="climate.set_mode">Chế độ điều hòa</option>
+                        <option value="climate.set_fan_speed">Tốc độ quạt</option>
+                        <option value="climate.set_swing">Đảo gió</option>
+                        <option value="climate.set_sleep">Chế độ ngủ</option>
+                    </select>
+                </label>
+                <label id="ir-semantic-value-field" class="ir-learn-field is-hidden" for="ir-semantic-value-input">
+                    <span id="ir-semantic-value-label" class="device-top-label">Giá trị</span>
+                    <input id="ir-semantic-value-input" type="text" placeholder="Ví dụ: 24 hoặc cool" />
+                    <small id="ir-semantic-value-hint" class="auth-hint">Nhập giá trị theo loại hành động đã chọn.</small>
+                </label>
+                <label class="ir-learn-field" for="ir-action-phrases-input">
+                    <span class="device-top-label">Câu lệnh mẫu</span>
+                    <textarea id="ir-action-phrases-input" rows="4"
+                        placeholder="Mỗi dòng là một cách nói, ví dụ: bật điều hòa phòng khách"></textarea>
+                </label>
+                <div class="ir-learn-form-actions">
+                    <button id="ir-start-btn" type="submit" class="primary-btn">Bắt đầu học lệnh</button>
+                    <button id="ir-cancel-btn" type="button" class="primary-btn secondary-tone">Hủy</button>
+                </div>
+                <div id="ir-learn-modal-status" class="auth-error" aria-live="polite"></div>
+            </form>
+        </section>
+    </div>
+
     <script>
         window.__SMART_HOME_BOOTSTRAP__ = {
             authenticated: {{ "true" if initial_authenticated else "false" }},
-        jetson_id: { { initial_jetson_id | tojson } },
-        device_id: { { initial_device_id | tojson } },
-        device_name: { { initial_device_name | tojson } }
+            jetson_id: {{ initial_jetson_id | tojson }},
+            device_id: {{ initial_device_id | tojson }},
+            device_name: {{ initial_device_name | tojson }}
         };
-    </script>
-    <script>
-        (() => {
-            const fab = document.getElementById("chatbot-fab");
-            const popup = document.getElementById("chatbot-popup");
-
-            if (!fab || !popup) {
-                return;
-            }
-
-            const syncFabState = () => {
-                const isHidden = popup.classList.contains("is-hidden");
-                popup.setAttribute("aria-hidden", String(isHidden));
-                fab.setAttribute("aria-expanded", String(!isHidden));
-                fab.setAttribute("aria-label", isHidden ? "Mở chatbot" : "Ẩn chatbot");
-            };
-
-            fab.addEventListener("click", () => {
-                popup.classList.toggle("is-hidden");
-                syncFabState();
-            });
-
-            syncFabState();
-        })();
     </script>
     <script type="module" src="/static/app.js"></script>
 </body>

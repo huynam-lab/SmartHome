@@ -43,6 +43,7 @@ def _build_state_entry(device_id: str, state: str = "unknown", source: str = "sy
         "last_command_at": None,
         "last_command_status": None,
         "last_command_message": None,
+        "active_action": None,
     }
     if metadata:
         entry.update(metadata)
@@ -71,6 +72,7 @@ def initialize_state(device_map: dict):
                 source="bootstrap",
                 metadata={
                     "state_verified": config.get("control_type") != "ir",
+                    "active_action": None,
                 },
             )
 
@@ -90,6 +92,7 @@ def sync_from_device_map(device_map: dict):
                     "last_command_at": existing.get("last_command_at"),
                     "last_command_status": existing.get("last_command_status"),
                     "last_command_message": existing.get("last_command_message"),
+                    "active_action": existing.get("active_action"),
                 },
             )
 
@@ -126,6 +129,7 @@ def set_state(device_id: str, state: str, source: str = "system"):
                 "last_command_at": existing.get("last_command_at"),
                 "last_command_status": existing.get("last_command_status"),
                 "last_command_message": existing.get("last_command_message"),
+                "active_action": existing.get("active_action"),
             },
         )
 
@@ -154,6 +158,7 @@ def set_command_status(
         "last_command_at": ts,
         "last_command_status": command_status,
         "last_command_message": message,
+        "active_action": command,
     }
 
     with _LOCK:
@@ -168,6 +173,7 @@ def set_command_status(
                 "last_command_at": ts,
                 "last_command_status": command_status,
                 "last_command_message": message,
+                "active_action": command,
             },
         )
 

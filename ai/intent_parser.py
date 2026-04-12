@@ -109,13 +109,46 @@ TIMER_ONE_MINUTE_PHRASES = [
     "mot phut",
 ]
 
+MODE_VALUE_PHRASES = {
+    "cool": ["che do mat", "lam mat", "mat", "cool"],
+    "dry": ["che do kho", "hut am", "kho", "dry"],
+    "heat": ["che do suoi", "suoi", "nong", "heat"],
+    "fan": ["che do quat", "fan mode", "quat gio"],
+    "auto": ["che do tu dong", "tu dong", "auto"],
+}
+
+FAN_SPEED_VALUE_PHRASES = {
+    "low": ["quat nhe", "gio nhe", "muc 1", "toc do thap", "quat thap"],
+    "medium": ["quat vua", "gio vua", "trung binh", "muc 2"],
+    "high": ["quat manh", "gio manh", "muc 3", "toc do cao", "quat cao"],
+    "auto": ["quat tu dong", "gio tu dong", "fan auto"],
+    "quiet": ["quat em", "yen lang", "im lang", "quiet"],
+    "turbo": ["turbo", "cuc manh", "sieu manh"],
+}
+
+SWING_VALUE_PHRASES = {
+    "off": ["tat dao gio", "dung dao gio", "khong dao gio", "swing off"],
+    "vertical": ["dao gio doc", "canh doc"],
+    "horizontal": ["dao gio ngang", "canh ngang"],
+    "auto": ["dao gio tu dong", "swing auto"],
+    "on": ["dao gio", "quay canh", "swing"],
+}
+
+SLEEP_VALUE_PHRASES = {
+    False: ["tat che do ngu", "sleep off", "tat sleep"],
+    True: ["che do ngu", "ngu dem", "sleep"],
+}
+
 
 def normalize_text(text: str) -> str:
     """Chuẩn hóa text để match ổn định với tiếng Việt có/không dấu."""
     if not text:
         return ""
 
-    normalized = str(text).lower().strip().replace("đ", "d")
+    normalized = str(text).lower().strip()
+    normalized = normalized.replace("°c", " do ").replace("ºc", " do ")
+    normalized = normalized.replace("°", " do ").replace("º", " do ")
+    normalized = normalized.replace("đ", "d")
     normalized = unicodedata.normalize("NFD", normalized)
     normalized = "".join(ch for ch in normalized if unicodedata.category(ch) != "Mn")
     normalized = re.sub(r"[^a-z0-9\s]", " ", normalized)
@@ -163,10 +196,33 @@ def _extract_requested_duration_seconds(text_n: str) -> Optional[int]:
 
 
 def _extract_requested_temperature(text_n: str) -> Optional[int]:
-    temp_match = re.search(r"(\d+)\s+do", text_n)
+    temp_match = re.search(r"(\d+)\s*(?:do|c)\b", text_n)
     if temp_match:
         return int(temp_match.group(1))
     return None
+
+
+def _extract_choice_by_phrases(text_n: str, phrase_map: Dict[Any, List[str]]) -> Optional[Any]:
+    for value, phrases in phrase_map.items():
+        if any(_has_phrase(text_n, phrase) for phrase in phrases):
+            return value
+    return None
+
+
+def _extract_requested_mode(text_n: str) -> Optional[str]:
+    return _extract_choice_by_phrases(text_n, MODE_VALUE_PHRASES)
+
+
+def _extract_requested_fan_speed(text_n: str) -> Optional[str]:
+    return _extract_choice_by_phrases(text_n, FAN_SPEED_VALUE_PHRASES)
+
+
+def _extract_requested_swing(text_n: str) -> Optional[str]:
+    return _extract_choice_by_phrases(text_n, SWING_VALUE_PHRASES)
+
+
+def _extract_requested_sleep(text_n: str) -> Optional[bool]:
+    return _extract_choice_by_phrases(text_n, SLEEP_VALUE_PHRASES)
 
 
 def _find_semantic_action(device_id: str, text_n: str) -> Optional[str]:
@@ -350,24 +406,65 @@ def parse_command_semantics(text: str) -> Dict[str, Any]:
                 matched_keywords.append(keyword)
 
     action = _extract_action(text_n)
+    requested_duration_seconds = _extract_requested_duration_seconds(text_n)
+    requested_temperature_c = _extract_requested_temperature(text_n)
+    requested_mode = _extract_requested_mode(text_n)
+    requested_fan_speed = _extract_requested_fan_speed(text_n)
+    requested_swing = _extract_requested_swing(text_n)
+    requested_sleep = _extract_requested_sleep(text_n)
+    has_semantic_parameter = any(
+        value is not None
+        for value in (
+            requested_duration_seconds,
+            requested_temperature_c,
+            requested_mode,
+            requested_fan_speed,
+            requested_swing,
+            requested_sleep,
+        )
+    )
+    inferred_operation = action
+    if requested_temperature_c is not None:
+        inferred_operation = "set_temperature"
+    elif requested_duration_seconds is not None and action == "off":
+        inferred_operation = "off_after"
+    elif requested_swing is not None:
+        inferred_operation = "set_swing"
+    elif requested_sleep is not None:
+        inferred_operation = "set_sleep"
+    elif requested_fan_speed is not None:
+        inferred_operation = "set_fan_speed"
+    elif requested_mode is not None:
+        inferred_operation = "set_mode"
     has_command_starter = _has_command_starter(text_n)
     has_command_tail = _has_command_tail(text_n)
     learned_action_info = parse_learned_action_reference(text)
     is_information_question = _looks_like_information_question(text_n, text)
     phrase_implied_control = bool(learned_action_info.get("matched_actions"))
-    is_control = bool((action and (has_command_starter or has_command_tail)) or phrase_implied_control)
+    is_control = bool(
+        (action and (has_command_starter or has_command_tail))
+        or phrase_implied_control
+        or (has_semantic_parameter and not is_information_question)
+    )
     if is_information_question and not phrase_implied_control and not has_command_starter:
         is_control = False
 
     return {
         "normalized_text": text_n,
-        "operation": action,
+        "operation": inferred_operation,
+        "verb_operation": action,
         "matched_keywords": list(dict.fromkeys(matched_keywords)),
         "has_command_starter": has_command_starter,
         "has_command_tail": has_command_tail,
         "ambiguous_action": bool(matched_keywords) and action is None and (has_command_starter or has_command_tail),
         "is_information_question": is_information_question,
         "is_control_request": is_control,
+        "requested_duration_seconds": requested_duration_seconds,
+        "requested_temperature_c": requested_temperature_c,
+        "requested_mode": requested_mode,
+        "requested_fan_speed": requested_fan_speed,
+        "requested_swing": requested_swing,
+        "requested_sleep": requested_sleep,
         "learned_action_info": learned_action_info,
     }
 
@@ -421,10 +518,17 @@ def detect_control_request(user_text: str) -> Dict[str, Any]:
         "normalized_text": parsed.get("normalized_text"),
         "matched_keywords": parsed.get("matched_keywords"),
         "action": parsed.get("operation"),
+        "verb_action": parsed.get("verb_operation"),
         "ambiguous_action": parsed.get("ambiguous_action"),
         "has_command_starter": parsed.get("has_command_starter"),
         "has_command_tail": parsed.get("has_command_tail"),
         "is_information_question": parsed.get("is_information_question"),
+        "requested_duration_seconds": parsed.get("requested_duration_seconds"),
+        "requested_temperature_c": parsed.get("requested_temperature_c"),
+        "requested_mode": parsed.get("requested_mode"),
+        "requested_fan_speed": parsed.get("requested_fan_speed"),
+        "requested_swing": parsed.get("requested_swing"),
+        "requested_sleep": parsed.get("requested_sleep"),
     }
     log_event(source="intent-parser", level="info", message="detect_control_request", payload=result)
     return result

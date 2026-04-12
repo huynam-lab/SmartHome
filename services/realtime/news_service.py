@@ -4,6 +4,8 @@ import html
 import re
 import urllib.parse
 import xml.etree.ElementTree as ET
+from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 
 from services.realtime.base import BaseRealtimeHandler
 from services.realtime.types import RealtimeIntent
@@ -41,6 +43,7 @@ _TITLE_SOURCE_HINTS = (
 _PREFERRED_PUBLISHER_KEYS = tuple(name.lower() for name in _PREFERRED_PUBLISHERS)
 _WHITESPACE_RE = re.compile(r"\s+")
 _TITLE_SPLIT_RE = re.compile(r"\s+-\s+")
+_VN_TIMEZONE = timezone(timedelta(hours=7))
 
 
 class NewsRealtimeHandler(BaseRealtimeHandler):
@@ -50,17 +53,17 @@ class NewsRealtimeHandler(BaseRealtimeHandler):
     def _handle(self, intent: RealtimeIntent):
         topic = self._normalize_topic(intent.entities.get("topic"))
         try:
-            items = self._fetch_news(topic)
+            items = self._fetch_news(topic=topic, time_scope=intent.time_scope)
         except Exception as exc:
             return self._unavailable(
                 "Em chưa lấy được tin tức realtime lúc này.",
-                data={"error": repr(exc), "topic": topic},
+                data={"error": repr(exc), "topic": topic, "time_scope": intent.time_scope},
             )
 
         if not items:
             return self._unavailable(
                 "Em chưa tìm thấy tin phù hợp lúc này.",
-                data={"topic": topic},
+                data={"topic": topic, "time_scope": intent.time_scope},
             )
 
         message = self._build_reply(topic=topic, items=items[:4])
@@ -70,12 +73,13 @@ class NewsRealtimeHandler(BaseRealtimeHandler):
             source="news.google.com/rss",
         )
 
-    def _fetch_news(self, topic: str):
+    def _fetch_news(self, topic: str, time_scope: str = "now"):
+        query_text = self._build_query_text(topic=topic, time_scope=time_scope)
         if topic:
-            query = urllib.parse.urlencode({"q": topic, "hl": "vi", "gl": "VN", "ceid": "VN:vi"})
+            query = urllib.parse.urlencode({"q": query_text, "hl": "vi", "gl": "VN", "ceid": "VN:vi"})
             url = f"https://news.google.com/rss/search?{query}"
         else:
-            query = urllib.parse.urlencode({"q": "thoi su Viet Nam hom nay", "hl": "vi", "gl": "VN", "ceid": "VN:vi"})
+            query = urllib.parse.urlencode({"q": query_text, "hl": "vi", "gl": "VN", "ceid": "VN:vi"})
             url = f"https://news.google.com/rss/search?{query}"
         xml_text = self._http_get_text(url, timeout=10.0)
         root = ET.fromstring(xml_text)
@@ -84,10 +88,27 @@ class NewsRealtimeHandler(BaseRealtimeHandler):
             title = html.unescape((item.findtext("title") or "").strip())
             link = (item.findtext("link") or "").strip()
             source = html.unescape((item.findtext("source") or "").strip())
+            published_at_raw = (item.findtext("pubDate") or "").strip()
+            published_at_ts = self._parse_published_timestamp(published_at_raw)
             title = _WHITESPACE_RE.sub(" ", title)
             if title:
-                items.append({"title": self._clean_title(title, source), "link": link, "publisher": source})
+                items.append(
+                    {
+                        "title": self._clean_title(title, source),
+                        "link": link,
+                        "publisher": source,
+                        "published_at": published_at_raw,
+                        "published_at_ts": published_at_ts,
+                    }
+                )
+        items = self._filter_items_by_time_scope(items, time_scope=time_scope)
         return self._rank_items(items)[:5]
+
+    def _build_query_text(self, topic: str, time_scope: str) -> str:
+        base_query = topic or "thoi su Viet Nam"
+        if time_scope == "today":
+            return f"{base_query} when:1d"
+        return base_query
 
     def _build_reply(self, topic: str, items):
         titles = [str(item.get("title") or "").strip(" .") for item in items if str(item.get("title") or "").strip()]
@@ -95,7 +116,7 @@ class NewsRealtimeHandler(BaseRealtimeHandler):
             return "Em chưa tìm thấy tin phù hợp lúc này."
 
         if topic:
-            intro = f"Thong tin mới nhất hôm nay "
+            intro = "Thông tin mới nhất hôm nay "
         else:
             intro = "Thông tin thời sự hôm nay em vừa cập nhật như sau. "
 
@@ -147,15 +168,37 @@ class NewsRealtimeHandler(BaseRealtimeHandler):
             return ""
         return topic
 
+    def _parse_published_timestamp(self, raw_value: str) -> float:
+        raw_text = str(raw_value or "").strip()
+        if not raw_text:
+            return 0.0
+        try:
+            dt = parsedate_to_datetime(raw_text)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.timestamp()
+        except Exception:
+            return 0.0
+
+    def _filter_items_by_time_scope(self, items, time_scope: str):
+        if time_scope != "today":
+            return items
+
+        now_vn = datetime.now(_VN_TIMEZONE)
+        start_of_day = now_vn.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+        filtered = [item for item in items if float(item.get("published_at_ts") or 0.0) >= start_of_day]
+        return filtered or items
+
     def _rank_items(self, items):
         def score(item):
+            published_at_ts = float(item.get("published_at_ts") or 0.0)
             publisher = str(item.get("publisher") or "").lower()
             preferred_index = len(_PREFERRED_PUBLISHER_KEYS) + 1
             for index, name in enumerate(_PREFERRED_PUBLISHER_KEYS):
                 if name in publisher:
                     preferred_index = index
                     break
-            return (preferred_index, publisher, item.get("title") or "")
+            return (-published_at_ts, preferred_index, publisher, item.get("title") or "")
 
         deduped = []
         seen = set()

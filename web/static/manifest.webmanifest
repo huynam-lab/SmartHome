@@ -2,7 +2,7 @@
   "name": "Smart Home AI Chat",
   "short_name": "Smart Home",
   "description": "Dieu khien he thong smart home bang AI chat va giong noi.",
-  "start_url": "/",
+  "start_url": "/index",
   "scope": "/",
   "display": "standalone",
   "background_color": "#F3EEF9",

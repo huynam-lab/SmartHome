@@ -1,5 +1,6 @@
 import asyncio
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -15,37 +16,125 @@ except Exception as exc:  # pragma: no cover
 else:
     _EDGE_TTS_IMPORT_ERROR = ""
 
-from config import ENABLE_TTS, TTS_MIC_BLOCK_COOLDOWN_SECONDS, TTS_SYNTH_TIMEOUT_SECONDS
+from config import ENABLE_TTS, TTS_MIC_BLOCK_COOLDOWN_SECONDS, TTS_SYNTH_TIMEOUT_SECONDS, TTS_VOICE_NAME
 from core.event_bus import log_event
 from core.voice_state import set_assistant_speaking, update_last_tts
 from services.music_player import get_music_player
 
 
 _TTS_LOCK = threading.Lock()
-_TTS_VOICE = "vi-VN-HoaiMyNeural"
+_REQUIRED_TTS_VOICE = "vi-VN-HoaiMyNeural"
+_TTS_VOICE = _REQUIRED_TTS_VOICE
 _TTS_RATE = "-20%"
 _DEFAULT_PLAYER_CANDIDATES = [
     ["mpg123", "-q"],
-    ["ffplay", "-nodisp", "-autoexit", "-loglevel", "error"],
     ["mpv", "--really-quiet"],
 ]
-_ESPEAK_BIN = shutil.which("espeak")
 
 
 def _log_tts(level: str, message: str, payload: Optional[Dict] = None) -> None:
     safe_payload = payload or {}
-    if safe_payload:
-        print(f"[TTS] {message} | {safe_payload}")
-    else:
-        print(f"[TTS] {message}")
     log_event(source="tts", level=level, message=message, payload=safe_payload)
 
 
-async def _synthesize_audio(text: str, output_path: str) -> None:
+def _ensure_tts_voice() -> str:
+    global _TTS_VOICE
+    if _TTS_VOICE != _REQUIRED_TTS_VOICE or TTS_VOICE_NAME != _REQUIRED_TTS_VOICE:
+        _log_tts(
+            "warning",
+            "override unsupported tts voice",
+            {
+                "configured_voice": TTS_VOICE_NAME,
+                "active_voice": _TTS_VOICE,
+                "required_voice": _REQUIRED_TTS_VOICE,
+            },
+        )
+        _TTS_VOICE = _REQUIRED_TTS_VOICE
+    return _TTS_VOICE
+
+
+def split_text_for_tts(text: str, max_len: int = 220) -> list:
+    cleaned = " ".join((text or "").strip().split())
+    if not cleaned:
+        return []
+    return [cleaned]
+
+
+def _normalize_tts_text(text: str, strict: bool = False) -> str:
+    """Giảm rủi ro NoAudioReceived bằng cách làm sạch ký tự/punctuation."""
+    cleaned = " ".join(str(text or "").strip().split())
+    if not cleaned:
+        return ""
+    cleaned = re.sub(r"[\x00-\x1F\x7F]", " ", cleaned)
+    cleaned = re.sub(r"\bTP\.\s*", "thanh pho ", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bQ\.\s*", "quan ", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"(\d{1,2})/(\d{1,2})", r"\1 thang \2", cleaned)
+    cleaned = cleaned.replace("“", '"').replace("”", '"').replace("’", "'")
+    cleaned = cleaned.replace('"', "").strip()
+    if not strict:
+        return cleaned
+    cleaned = re.sub(r"(\d+)[.,](\d+)", r"\1 phay \2", cleaned)
+    cleaned = re.sub(r"\bkm/h\b", " ki lo met tren gio ", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bm/s\b", " met tren giay ", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bmm\b", " mi li met ", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bcm\b", " xen ti met ", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bkg\b", " ki lo gam ", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bkm\b", " ki lo met ", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bmb\b", " mê ga bai ", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bgb\b", " ghi ga bai ", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bhttps?://\S+\b", " lien ket web ", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bwww\.\S+\b", " lien ket web ", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"[,;:(){}\[\]/\\]+", " ", cleaned)
+    cleaned = re.sub(r"[.!?]+$", "", cleaned)
+    cleaned = cleaned.replace("%", " phan tram")
+    cleaned = cleaned.replace("°C", " do C").replace("°", " do ")
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned
+
+
+def _split_smaller(text: str, max_len: int) -> list:
+    cleaned = " ".join((text or "").strip().split())
+    if not cleaned:
+        return []
+    return [cleaned]
+
+
+def _synthesize_with_retries(text: str, output_path: str) -> None:
+    last_error: Optional[Exception] = None
+    for attempt in range(1, 4):
+        effective_rate = _TTS_RATE if attempt == 1 else "+0%"
+        effective_text = _normalize_tts_text(text, strict=attempt >= 3)
+        try:
+            asyncio.run(_synthesize_audio(text=effective_text, output_path=output_path, rate=effective_rate))
+            return
+        except Exception as exc:
+            last_error = exc
+            _log_tts(
+                "error",
+                "synthesis failed",
+                {
+                    "exception_type": type(exc).__name__,
+                    "exception_message": str(exc),
+                    "error": repr(exc),
+                    "voice": _ensure_tts_voice(),
+                    "rate": effective_rate,
+                    "text": effective_text,
+                    "audio_path": output_path,
+                    "retry": attempt,
+                },
+            )
+            if attempt < 3:
+                time.sleep(0.35 * attempt)
+    if last_error:
+        raise last_error
+
+
+async def _synthesize_audio(text: str, output_path: str, rate: str) -> None:
     if edge_tts is None:
         raise RuntimeError(f"edge_tts import failed: {_EDGE_TTS_IMPORT_ERROR}")
-    communicate = edge_tts.Communicate(text=text, voice=_TTS_VOICE, rate=_TTS_RATE)
-    await asyncio.wait_for(communicate.save(output_path), timeout=max(1.0, TTS_SYNTH_TIMEOUT_SECONDS))
+    communicate = edge_tts.Communicate(text=text, voice=_ensure_tts_voice(), rate=rate)
+    adaptive_timeout = max(1.0, TTS_SYNTH_TIMEOUT_SECONDS, 12.0 + (len(text) * 0.12))
+    await asyncio.wait_for(communicate.save(output_path), timeout=adaptive_timeout)
 
 
 def _list_available_audio_players() -> list:
@@ -93,31 +182,6 @@ def _play_audio(audio_path: str) -> Dict[str, object]:
     return {"success": False, "message": "Phát âm thanh thất bại", **final_payload}
 
 
-def _speak_with_espeak(text: str) -> bool:
-    if not _ESPEAK_BIN:
-        _log_tts("warning", "espeak unavailable for fallback", {})
-        return False
-    command = [_ESPEAK_BIN, "-v", "vi", "-s", "150", text]
-    _log_tts("info", "fallback espeak command", {"command": command})
-    try:
-        result = subprocess.run(command, check=False, capture_output=True, text=True, timeout=20)
-    except Exception as exc:
-        _log_tts("error", "fallback espeak failed", {"error": repr(exc)})
-        return False
-
-    payload = {
-        "command": command,
-        "returncode": result.returncode,
-        "stdout": (result.stdout or "").strip(),
-        "stderr": (result.stderr or "").strip(),
-    }
-    if result.returncode == 0:
-        _log_tts("success", "fallback espeak success", payload)
-        return True
-    _log_tts("error", "fallback espeak non-zero", payload)
-    return False
-
-
 def speak_text(text: str) -> bool:
     """Public TTS entrypoint, luôn log rõ từng bước để debug."""
     if not text:
@@ -133,7 +197,12 @@ def speak_text(text: str) -> bool:
         _log_tts(
             "error",
             "edge_tts module chưa sẵn sàng",
-            {"error": _EDGE_TTS_IMPORT_ERROR, "hint": "Hãy chạy python3.10 -m pip install -r requirements-py310.txt"},
+            {
+                "error": _EDGE_TTS_IMPORT_ERROR,
+                "voice": _ensure_tts_voice(),
+                "text": text,
+                "hint": "Hãy chạy python3.10 -m pip install -r requirements-py310.txt",
+            },
         )
         return False
 
@@ -141,6 +210,8 @@ def speak_text(text: str) -> bool:
         set_assistant_speaking(True)
         temp_file = None
         music_player = get_music_player()
+        chunks = split_text_for_tts(text, max_len=220)
+        total_chunks = len(chunks)
         try:
             try:
                 duck_result = music_player.duck_for_tts()
@@ -148,29 +219,119 @@ def speak_text(text: str) -> bool:
             except Exception as exc:
                 _log_tts("warning", "music duck failed before tts", {"error": repr(exc)})
 
-            fd, temp_file = tempfile.mkstemp(prefix="tts_", suffix=".mp3")
-            os.close(fd)
-            _log_tts("info", "audio temp file allocated", {"audio_path": temp_file})
-
-            try:
-                asyncio.run(_synthesize_audio(text=text, output_path=temp_file))
-                _log_tts("info", "audio file created", {"audio_path": temp_file})
-            except Exception as exc:
-                _log_tts("error", "synthesis failed", {"text": text, "audio_path": temp_file, "error": repr(exc)})
-                return _speak_with_espeak(text)
-
-            if not os.path.exists(temp_file):
-                _log_tts("error", "audio file missing after synthesis", {"audio_path": temp_file})
+            if not chunks:
+                _log_tts("warning", "skip empty chunks", {"text": text})
                 return False
 
-            file_size = os.path.getsize(temp_file)
-            if file_size <= 0:
-                _log_tts("error", "audio file empty", {"audio_path": temp_file, "file_size": file_size})
-                return False
+            voice = _ensure_tts_voice()
+            for idx, chunk in enumerate(chunks, start=1):
+                chunk_len = len(chunk)
+                _log_tts(
+                    "info",
+                    "chunk start",
+                    {"chunk_index": idx, "chunk_total": total_chunks, "text_len": chunk_len},
+                )
 
-            _log_tts("info", "before playback", {"audio_path": temp_file, "file_size": file_size})
-            play_result = _play_audio(temp_file)
-            return bool(play_result.get("success"))
+                def _process_chunk(text_value: str, depth: int = 0) -> bool:
+                    if not text_value:
+                        return False
+                    if depth > 2:
+                        return False
+
+                    fd, temp_file = tempfile.mkstemp(prefix="tts_", suffix=".mp3")
+                    os.close(fd)
+                    try:
+                        _log_tts(
+                            "info",
+                            "audio temp file allocated",
+                            {
+                                "audio_path": temp_file,
+                                "chunk_index": idx,
+                                "chunk_total": total_chunks,
+                                "text_len": len(text_value),
+                                "depth": depth,
+                            },
+                        )
+
+                        _log_tts(
+                            "info",
+                            "before synthesis",
+                            {
+                                "voice": voice,
+                                "rate": _TTS_RATE,
+                                "text": text_value,
+                                "audio_path": temp_file,
+                                "chunk_index": idx,
+                                "chunk_total": total_chunks,
+                                "text_len": len(text_value),
+                                "depth": depth,
+                            },
+                        )
+                        _synthesize_with_retries(text_value, temp_file)
+
+                        if not os.path.exists(temp_file):
+                            raise RuntimeError("audio file missing after synthesis")
+
+                        file_size = os.path.getsize(temp_file)
+                        if file_size <= 0:
+                            raise RuntimeError("audio file empty")
+
+                        _log_tts(
+                            "info",
+                            "before playback",
+                            {
+                                "audio_path": temp_file,
+                                "file_size": file_size,
+                                "chunk_index": idx,
+                                "chunk_total": total_chunks,
+                                "text_len": len(text_value),
+                                "depth": depth,
+                            },
+                        )
+                        play_result = _play_audio(temp_file)
+                        if not play_result.get("success"):
+                            _log_tts(
+                                "error",
+                                "playback failed",
+                                {
+                                    "audio_path": temp_file,
+                                    "chunk_index": idx,
+                                    "chunk_total": total_chunks,
+                                    "text_len": len(text_value),
+                                    "depth": depth,
+                                },
+                            )
+                            return False
+                        return True
+                    except Exception as exc:
+                        _log_tts(
+                            "warning",
+                            "chunk synthesis failed",
+                            {
+                                "exception_type": type(exc).__name__,
+                                "exception_message": str(exc),
+                                "error": repr(exc),
+                                "text_len": len(text_value),
+                                "depth": depth,
+                            },
+                        )
+                        return False
+                    finally:
+                        if temp_file and os.path.exists(temp_file):
+                            try:
+                                os.remove(temp_file)
+                                _log_tts("info", "audio temp file removed", {"audio_path": temp_file})
+                            except Exception as exc:
+                                _log_tts(
+                                    "warning",
+                                    "failed to remove temp audio",
+                                    {"audio_path": temp_file, "error": repr(exc)},
+                                )
+
+                if not _process_chunk(chunk, depth=0):
+                    return False
+
+            return True
         finally:
             try:
                 restore_result = music_player.restore_after_tts()
@@ -180,12 +341,6 @@ def speak_text(text: str) -> bool:
             update_last_tts(text)
             time.sleep(max(0.0, TTS_MIC_BLOCK_COOLDOWN_SECONDS))
             set_assistant_speaking(False)
-            if temp_file and os.path.exists(temp_file):
-                try:
-                    os.remove(temp_file)
-                    _log_tts("info", "audio temp file removed", {"audio_path": temp_file})
-                except Exception as exc:
-                    _log_tts("warning", "failed to remove temp audio", {"audio_path": temp_file, "error": repr(exc)})
             _log_tts("info", "done", {"text": text})
 
 

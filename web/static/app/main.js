@@ -1,18 +1,22 @@
 import { app } from "./core.js";
 import { bootstrapAuthentication, handleLogout, submitLogin, submitPasswordChange } from "./auth.js";
-import { startVoiceRecognition } from "./chat.js";
+import { startMic, stopMic } from "./chat.js";
 import {
     closeAddDeviceModal,
     closeAddFunctionButtonModal,
     closeDeviceControlPage,
+    closeDeviceScheduleModal,
     closeIrLearnModal as closeIrLearnForm,
     learnIrCommand,
     loadDevices,
     openAddFunctionButtonModal,
     openAddDeviceModal,
+    openDeviceScheduleModal,
     openIrLearnModal,
+    setDeviceScheduleAction,
     submitAddFunctionButton,
     submitAddDevice,
+    submitDeviceSchedule,
     syncIrDeviceSelection,
     updateIrSemanticForm,
     updateIrSignalTypeForm,
@@ -21,6 +25,7 @@ import {
     closeDeviceMenus,
     closePasswordModal,
     closeSettingsMenu,
+    initPasswordVisibilityToggles,
     openPasswordModal,
     positionSettingsMenu,
     registerPwaServiceWorker,
@@ -31,7 +36,11 @@ import {
 function bindEvents() {
     app.dom.reloadBtnEl?.addEventListener("click", loadDevices);
     app.dom.chatFormEl?.addEventListener("submit", (event) => event.preventDefault());
-    app.dom.micBtnEl?.addEventListener("click", startVoiceRecognition);
+    app.dom.micBtnEl?.addEventListener("click", () => {
+        startMic().catch((error) => {
+            console.error("[voice-chat] startMic() failed", error);
+        });
+    });
     app.dom.authFormEl?.addEventListener("submit", submitLogin);
     app.dom.authLoginTabEl?.addEventListener("click", () => setAuthMode("login"));
     app.dom.authRegisterTabEl?.addEventListener("click", () => setAuthMode("register"));
@@ -47,18 +56,25 @@ function bindEvents() {
     app.dom.addDeviceBackdropEl?.addEventListener("click", closeAddDeviceModal);
     app.dom.addDeviceFormEl?.addEventListener("submit", submitAddDevice);
     app.dom.deviceControlBackBtnEl?.addEventListener("click", closeDeviceControlPage);
+    app.dom.deviceScheduleTriggerBtnEl?.addEventListener("click", openDeviceScheduleModal);
     app.dom.addFunctionTriggerBtnEl?.addEventListener("click", openAddFunctionButtonModal);
     app.dom.addFunctionButtonCloseBtnEl?.addEventListener("click", closeAddFunctionButtonModal);
     app.dom.addFunctionButtonBackdropEl?.addEventListener("click", closeAddFunctionButtonModal);
     app.dom.addFunctionButtonCancelBtnEl?.addEventListener("click", closeAddFunctionButtonModal);
     app.dom.addFunctionButtonFormEl?.addEventListener("submit", submitAddFunctionButton);
+    app.dom.deviceScheduleCloseBtnEl?.addEventListener("click", closeDeviceScheduleModal);
+    app.dom.deviceScheduleBackdropEl?.addEventListener("click", closeDeviceScheduleModal);
+    app.dom.deviceScheduleCancelBtnEl?.addEventListener("click", closeDeviceScheduleModal);
+    app.dom.deviceScheduleFormEl?.addEventListener("submit", submitDeviceSchedule);
+    app.dom.deviceScheduleActionInputEl?.addEventListener("change", (event) => {
+        setDeviceScheduleAction(event.target?.value);
+    });
     app.dom.irLearnCloseBtnEl?.addEventListener("click", closeIrLearnForm);
     app.dom.irLearnBackdropEl?.addEventListener("click", closeIrLearnForm);
     app.dom.irSignalTypeSelectEl?.addEventListener("change", updateIrSignalTypeForm);
     app.dom.irLearnFormEl?.addEventListener("submit", learnIrCommand);
     app.dom.irCancelBtnEl?.addEventListener("click", closeIrLearnForm);
     app.dom.addDeviceCancelBtnEl?.addEventListener("click", closeAddDeviceModal);
-    app.dom.irDeviceSelectEl?.addEventListener("change", () => syncIrDeviceSelection(app.dom.irDeviceSelectEl.value));
     app.dom.irSemanticKindSelectEl?.addEventListener("change", updateIrSemanticForm);
 
     document.addEventListener("click", (event) => {
@@ -82,6 +98,7 @@ function bindEvents() {
             closePasswordModal();
             closeAddDeviceModal();
             closeAddFunctionButtonModal();
+            closeDeviceScheduleModal();
             closeIrLearnForm();
         }
     });
@@ -108,7 +125,11 @@ export function startApp() {
     setAuthMode("login");
     updateIrSemanticForm();
     updateIrSignalTypeForm();
+    initPasswordVisibilityToggles();
     bindEvents();
+    window.addEventListener("pagehide", () => {
+        stopMic({ force: true, updateUi: false });
+    });
     registerPwaServiceWorker();
     bootstrapAuthentication();
 }

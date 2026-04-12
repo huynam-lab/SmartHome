@@ -1,7 +1,7 @@
 import { app } from "./core.js";
 import { fetchJson } from "./api.js";
 import { normalizeMessageText } from "./utils.js";
-import { addChatMessage, ensureWelcomeMessage, setChatStatus, setVoiceUiState, shouldRenderChatMessage, showChatEmptyState } from "./ui.js";
+import { addChatMessage, ensureWelcomeMessage, hydrateChatHistory, setChatStatus, setVoiceUiState, shouldRenderChatMessage, showChatEmptyState } from "./ui.js";
 import { handleDeviceStateChanged, handleSnapshot } from "./devices.js";
 import { handleAssistantTtsChunk, renderEventAsChat, shouldSkipSocketMessage } from "./chat.js";
 
@@ -86,7 +86,10 @@ export function initializeApp() {
         return;
     }
     app.state.appInitialized = true;
-    showChatEmptyState();
+    const restoredChat = hydrateChatHistory();
+    if (!restoredChat) {
+        showChatEmptyState();
+    }
     ensureWelcomeMessage();
     setupRealtime();
     pollEvents();
