@@ -43,11 +43,17 @@ function _buildChatRowHtml(safeRole, normalizedText, ts) {
     `;
 }
 
+function shouldKeepChatEntry(entry) {
+    const safeRole = app.constants.CHAT_ROLE_META[entry?.role] ? entry.role : "system";
+    const isError = Boolean(entry?.isError);
+    return safeRole !== "system" && !isError;
+}
+
 function readPersistedChatHistory() {
     try {
         const raw = window.sessionStorage.getItem(app.constants.CHAT_HISTORY_STORAGE_KEY);
         const parsed = raw ? JSON.parse(raw) : [];
-        return Array.isArray(parsed) ? parsed : [];
+        return Array.isArray(parsed) ? parsed.filter(shouldKeepChatEntry) : [];
     } catch (error) {
         console.warn("[chat] failed to read persisted history", error);
         return [];
@@ -58,7 +64,11 @@ function writePersistedChatHistory(messages) {
     try {
         window.sessionStorage.setItem(
             app.constants.CHAT_HISTORY_STORAGE_KEY,
-            JSON.stringify(Array.isArray(messages) ? messages.slice(-app.constants.CHAT_HISTORY_LIMIT) : [])
+            JSON.stringify(
+                Array.isArray(messages)
+                    ? messages.filter(shouldKeepChatEntry).slice(-app.constants.CHAT_HISTORY_LIMIT)
+                    : []
+            )
         );
     } catch (error) {
         console.warn("[chat] failed to persist history", error);
@@ -68,6 +78,9 @@ function writePersistedChatHistory(messages) {
 function persistChatMessage(entry) {
     const normalizedText = String(entry?.text || "").trim();
     if (!normalizedText) {
+        return;
+    }
+    if (!shouldKeepChatEntry(entry)) {
         return;
     }
 
@@ -100,6 +113,9 @@ function persistChatMessage(entry) {
 function upsertPersistedChatMessage(entry) {
     const normalizedText = String(entry?.text || "").trim();
     if (!normalizedText) {
+        return;
+    }
+    if (!shouldKeepChatEntry(entry)) {
         return;
     }
 
@@ -171,6 +187,7 @@ export function setAuthMode(mode = "login") {
 
     app.dom.authLoginTabEl?.classList.toggle("is-active", !isRegisterMode);
     app.dom.authRegisterTabEl?.classList.toggle("is-active", isRegisterMode);
+    app.dom.authRegisterTabEl?.classList.remove("is-hidden");
     app.dom.authLoginTabEl?.setAttribute("aria-selected", String(!isRegisterMode));
     app.dom.authRegisterTabEl?.setAttribute("aria-selected", String(isRegisterMode));
     app.dom.authJetsonFieldEl?.classList.toggle("is-hidden", !isRegisterMode);
@@ -485,6 +502,9 @@ export function addChatMessage(role, text, ts = Date.now(), options = {}) {
     if (!normalizedText || !app.dom.chatMessagesEl) {
         return false;
     }
+    if (!shouldKeepChatEntry({ role: safeRole, isError: options.isError })) {
+        return false;
+    }
 
     const dedupeKey = buildDedupeKey(
         safeRole,
@@ -529,6 +549,9 @@ export function upsertChatMessage(role, text, ts = Date.now(), options = {}) {
     if (!normalizedText || !app.dom.chatMessagesEl) {
         return false;
     }
+    if (!shouldKeepChatEntry({ role: safeRole, isError: options.isError })) {
+        return false;
+    }
 
     if (messageId) {
         const rowEl = app.dom.chatMessagesEl.querySelector(`.chat-row[data-message-id="${CSS.escape(messageId)}"]`);
@@ -569,10 +592,7 @@ export function shouldRenderChatMessage(message, source = "", level = "") {
     if (!normalizedMessage) return false;
     if (app.constants.BLOCKED_EVENT_SOURCES.has(normalizedSource)) return false;
     if (app.constants.BLOCKED_MESSAGE_KEYWORDS.some((keyword) => normalizedMessage.includes(keyword))) return false;
-    if (normalizedLevel && ["debug", "info", "trace", "verbose"].includes(normalizedLevel)) return false;
+    if (normalizedLevel && ["debug", "info", "trace", "verbose", "error", "warn", "warning"].includes(normalizedLevel)) return false;
     if (app.constants.USER_VISIBLE_EVENT_SOURCES.has(normalizedSource)) return true;
-    if (["error", "warn", "warning"].includes(normalizedLevel)) {
-        return app.constants.ALLOWED_ERROR_KEYWORDS.some((keyword) => normalizedMessage.includes(keyword));
-    }
     return false;
 }

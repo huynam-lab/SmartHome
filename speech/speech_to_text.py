@@ -19,6 +19,8 @@ from config import (
     SUPPRESS_NATIVE_AUDIO_LOGS,
     TTS_ECHO_IGNORE_WINDOW_SECONDS,
     VOICE_BLOCK_SLEEP_SECONDS,
+    STT_MIC_CACHE_TTL_SECONDS,
+    STT_IDLE_LOG_INTERVAL_SECONDS,
 )
 
 
@@ -33,6 +35,10 @@ _LAST_BACKEND_ERROR_AT = 0.0
 _LAST_BACKEND_ERROR_MESSAGE = ""
 _LAST_AMBIENT_CALIBRATED_AT = 0.0
 _STDERR_REDIRECT_LOCK = threading.Lock()
+_MIC_CACHE_LOCK = threading.Lock()
+_CACHED_MIC_INDEX = None
+_CACHED_MIC_INDEX_AT = 0.0
+_LAST_IDLE_TIMEOUT_LOGGED_AT = 0.0
 
 
 @contextmanager
@@ -78,8 +84,15 @@ def _check_audio_backend() -> bool:
 
 def _resolve_microphone_index():
     """-1 -> tu dong tim mic phu hop, nguoc lai dung index chi dinh."""
+    global _CACHED_MIC_INDEX, _CACHED_MIC_INDEX_AT
+
     if MIC_DEVICE_INDEX >= 0:
         return MIC_DEVICE_INDEX
+
+    now = time.time()
+    with _MIC_CACHE_LOCK:
+        if now - _CACHED_MIC_INDEX_AT < max(1.0, STT_MIC_CACHE_TTL_SECONDS):
+            return _CACHED_MIC_INDEX
 
     try:
         with _suppress_native_audio_stderr():
@@ -95,9 +108,15 @@ def _resolve_microphone_index():
     for keyword in MIC_PREFERRED_KEYWORDS:
         for idx, mic_name in enumerate(lowered):
             if keyword in mic_name:
+                with _MIC_CACHE_LOCK:
+                    _CACHED_MIC_INDEX = idx
+                    _CACHED_MIC_INDEX_AT = now
                 return idx
 
     # Fallback ve default cua he thong neu khong match keyword
+    with _MIC_CACHE_LOCK:
+        _CACHED_MIC_INDEX = None
+        _CACHED_MIC_INDEX_AT = now
     return None
 
 
@@ -145,7 +164,7 @@ def is_echo_from_tts(user_text: str, last_tts_text: str, last_tts_time: float) -
 
 
 def recognize_once():
-    global _LAST_AMBIENT_CALIBRATED_AT
+    global _LAST_AMBIENT_CALIBRATED_AT, _LAST_IDLE_TIMEOUT_LOGGED_AT
 
     if is_assistant_speaking():
         time.sleep(max(0.01, VOICE_BLOCK_SLEEP_SECONDS))
@@ -159,7 +178,8 @@ def recognize_once():
     try:
         with _suppress_native_audio_stderr():
             with sr.Microphone(device_index=mic_index) as source:
-                log_event(source="stt", level="info", message="Bắt đầu lắng nghe microphone", payload={"mic_index": mic_index})
+                if DEBUG_VOICE:
+                    log_event(source="stt", level="info", message="Bắt đầu lắng nghe microphone", payload={"mic_index": mic_index})
 
                 now = time.time()
                 should_refresh_ambient = (
@@ -169,16 +189,17 @@ def recognize_once():
                 if should_refresh_ambient:
                     _recognizer.adjust_for_ambient_noise(source, duration=AMBIENT_NOISE_DURATION)
                     _LAST_AMBIENT_CALIBRATED_AT = time.time()
-                    log_event(
-                        source="stt",
-                        level="info",
-                        message="Đã calibrate ambient noise",
-                        payload={
-                            "duration": AMBIENT_NOISE_DURATION,
-                            "refresh_seconds": AMBIENT_NOISE_REFRESH_SECONDS,
-                        },
-                    )
-                else:
+                    if DEBUG_VOICE:
+                        log_event(
+                            source="stt",
+                            level="info",
+                            message="Đã calibrate ambient noise",
+                            payload={
+                                "duration": AMBIENT_NOISE_DURATION,
+                                "refresh_seconds": AMBIENT_NOISE_REFRESH_SECONDS,
+                            },
+                        )
+                elif DEBUG_VOICE:
                     log_event(
                         source="stt",
                         level="info",
@@ -199,9 +220,13 @@ def recognize_once():
                         timeout=LISTEN_TIMEOUT,
                         phrase_time_limit=PHRASE_TIME_LIMIT,
                     )
-                    log_event(source="stt", level="info", message="Đã thu được audio từ microphone", payload={"timeout": LISTEN_TIMEOUT, "phrase_time_limit": PHRASE_TIME_LIMIT})
+                    if DEBUG_VOICE:
+                        log_event(source="stt", level="info", message="Đã thu được audio từ microphone", payload={"timeout": LISTEN_TIMEOUT, "phrase_time_limit": PHRASE_TIME_LIMIT})
                 except sr.WaitTimeoutError:
-                    log_event(source="stt", level="warning", message="Listen timeout, không có giọng nói", payload={})
+                    now = time.time()
+                    if DEBUG_VOICE or (now - _LAST_IDLE_TIMEOUT_LOGGED_AT) >= max(1.0, STT_IDLE_LOG_INTERVAL_SECONDS):
+                        log_event(source="stt", level="info", message="Microphone đang chờ giọng nói", payload={"timeout": LISTEN_TIMEOUT})
+                        _LAST_IDLE_TIMEOUT_LOGGED_AT = now
                     return ""
 
         try:

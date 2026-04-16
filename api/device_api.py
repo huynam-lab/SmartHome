@@ -9,6 +9,8 @@ ACTION_LABELS = {
     "timer.off_after_1_min": "Hẹn tắt 1 phút",
     "on": "Bật",
     "off": "Tắt",
+    "bat": "Bật",
+    "tat": "Tắt",
 }
 
 
@@ -151,9 +153,9 @@ def _build_control_reply_text(device_name: str, action: str, action_config: dict
     semantic_operation = str(semantic.get("operation") or "").strip().lower()
     target_name = (device_name or "thiết bị").strip()
 
-    if semantic_operation == "on" or action in {"on", "power.on"}:
+    if semantic_operation == "on" or action in {"on", "power.on", "bat"}:
         action_text = "bật"
-    elif semantic_operation == "off" or action in {"off", "power.off"}:
+    elif semantic_operation == "off" or action in {"off", "power.off", "tat"}:
         action_text = "tắt"
     elif action == "timer.off_after_1_min":
         action_text = "hẹn tắt sau 1 phút cho"

@@ -212,6 +212,67 @@ function buildDefaultDeviceFunctions(device) {
     ];
 }
 
+function getScheduleActionOptions(device) {
+    const availableActions = Array.isArray(device?.actions) ? device.actions : [];
+    const actionLabels = device?.action_labels && typeof device.action_labels === "object" ? device.action_labels : {};
+    const options = [];
+    const onAction = availableActions.find((action) => ["turn_on", "on", "power.on", "bat"].includes(normalizeActionKey(action)));
+    const offAction = availableActions.find((action) => ["turn_off", "off", "power.off", "tat"].includes(normalizeActionKey(action)));
+
+    if (onAction) {
+        options.push({
+            value: onAction,
+            label: actionLabels[onAction] || formatActionLabel(onAction),
+        });
+    }
+    if (offAction && normalizeActionKey(offAction) !== normalizeActionKey(onAction)) {
+        options.push({
+            value: offAction,
+            label: actionLabels[offAction] || formatActionLabel(offAction),
+        });
+    }
+
+    return options;
+}
+
+function renderDeviceScheduleActionOptions(device, preferredAction = "") {
+    if (!app.dom.deviceScheduleActionInputEl) {
+        return false;
+    }
+
+    const options = getScheduleActionOptions(device);
+    if (!options.length) {
+        app.dom.deviceScheduleActionInputEl.innerHTML = '<option value="">Thiết bị chưa có lệnh bật hoặc tắt</option>';
+        app.dom.deviceScheduleActionInputEl.value = "";
+        app.dom.deviceScheduleActionInputEl.disabled = true;
+        if (app.dom.deviceScheduleSubmitBtnEl) {
+            app.dom.deviceScheduleSubmitBtnEl.disabled = true;
+        }
+        return false;
+    }
+
+    app.dom.deviceScheduleActionInputEl.innerHTML = options.map((option) => `
+        <option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>
+    `).join("");
+
+    const preferredKey = normalizeActionKey(preferredAction);
+    const selectedOption = options.find((option) => {
+        const optionCandidates = expandActionKeyCandidates(option.value);
+        if (optionCandidates.includes(preferredKey)) {
+            return true;
+        }
+        const preferredCandidates = expandActionKeyCandidates(preferredKey);
+        return preferredCandidates.some((candidate) => optionCandidates.includes(candidate));
+    }) || options[0];
+
+    app.dom.deviceScheduleActionInputEl.disabled = Boolean(app.state.isScheduleSubmitting);
+    app.dom.deviceScheduleActionInputEl.value = selectedOption.value;
+    if (app.dom.deviceScheduleSubmitBtnEl) {
+        app.dom.deviceScheduleSubmitBtnEl.disabled = Boolean(app.state.isScheduleSubmitting);
+    }
+    return true;
+}
+
 function buildFunctionsFromActions(device) {
     const availableActions = Array.isArray(device.actions) ? device.actions : [];
     return availableActions.map((action) => {
@@ -409,25 +470,29 @@ async function loadDeviceSchedules(deviceId) {
 function setDeviceScheduleLoadingState(loading) {
     app.state.isScheduleSubmitting = loading;
     [
-        app.dom.deviceScheduleSubmitBtnEl,
         app.dom.deviceScheduleCancelBtnEl,
         app.dom.deviceScheduleCloseBtnEl,
         app.dom.deviceScheduleHourInputEl,
         app.dom.deviceScheduleMinuteInputEl,
-        app.dom.deviceScheduleActionInputEl,
         app.dom.deviceScheduleRepeatInputEl,
     ].forEach((el) => {
         if (el) {
             el.disabled = loading;
         }
     });
+    if (app.dom.deviceScheduleActionInputEl) {
+        const hasAction = Boolean(String(app.dom.deviceScheduleActionInputEl.value || "").trim());
+        app.dom.deviceScheduleActionInputEl.disabled = loading || !hasAction;
+    }
+    if (app.dom.deviceScheduleSubmitBtnEl) {
+        const hasAction = Boolean(String(app.dom.deviceScheduleActionInputEl?.value || "").trim());
+        app.dom.deviceScheduleSubmitBtnEl.disabled = loading || !hasAction;
+    }
 }
 
 export function setDeviceScheduleAction(action) {
-    const normalizedAction = String(action || "power.on").trim().toLowerCase() === "power.off" ? "power.off" : "power.on";
-    if (app.dom.deviceScheduleActionInputEl) {
-        app.dom.deviceScheduleActionInputEl.value = normalizedAction;
-    }
+    const device = getDeviceById(app.state.currentDeviceControlId);
+    renderDeviceScheduleActionOptions(device, action);
 }
 
 export function renderAddDeviceTemplateOptions() {
@@ -1228,7 +1293,10 @@ export async function openDeviceScheduleModal() {
     if (app.dom.deviceScheduleRepeatInputEl) {
         app.dom.deviceScheduleRepeatInputEl.checked = false;
     }
-    setDeviceScheduleAction("power.on");
+    const hasSupportedScheduleAction = renderDeviceScheduleActionOptions(device, "power.on");
+    if (!hasSupportedScheduleAction) {
+        setDeviceScheduleFeedback("Thiết bị này chưa có action bật/tắt để hẹn giờ.");
+    }
     app.state.deviceSchedules = [];
     renderDeviceScheduleList();
 
@@ -1481,7 +1549,7 @@ export async function submitDeviceSchedule(event) {
     const device = getDeviceById(app.state.currentDeviceControlId);
     const hour = String(app.dom.deviceScheduleHourInputEl?.value || "").trim();
     const minute = String(app.dom.deviceScheduleMinuteInputEl?.value || "").trim();
-    const action = String(app.dom.deviceScheduleActionInputEl?.value || "power.on").trim();
+    const action = String(app.dom.deviceScheduleActionInputEl?.value || "").trim();
     const repeat = Boolean(app.dom.deviceScheduleRepeatInputEl?.checked);
 
     if (!device) {
@@ -1490,6 +1558,10 @@ export async function submitDeviceSchedule(event) {
     }
     if (hour === "" || minute === "") {
         setDeviceScheduleFeedback("Vui lòng nhập đủ giờ và phút.");
+        return;
+    }
+    if (!action) {
+        setDeviceScheduleFeedback("Thiết bị này chưa có action bật/tắt hợp lệ để hẹn giờ.");
         return;
     }
     if ((app.state.deviceSchedules || []).length >= 2) {

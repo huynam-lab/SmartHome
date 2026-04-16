@@ -24,7 +24,22 @@ export function initializeChatbotShell() {
         }
     };
 
+    const isLocked = () => document.body.classList.contains("auth-locked");
+
     const syncFabState = () => {
+        if (isLocked()) {
+            popup.classList.add("is-hidden");
+            popup.setAttribute("aria-hidden", "true");
+            popup.hidden = true;
+            fab.hidden = true;
+            fab.setAttribute("aria-expanded", "false");
+            fab.setAttribute("aria-label", "Mở chatbot");
+            writeOpenState(false);
+            return;
+        }
+
+        popup.hidden = false;
+        fab.hidden = false;
         const isHidden = popup.classList.contains("is-hidden");
         popup.setAttribute("aria-hidden", String(isHidden));
         fab.setAttribute("aria-expanded", String(!isHidden));
@@ -33,10 +48,16 @@ export function initializeChatbotShell() {
     };
 
     fab.addEventListener("click", () => {
+        if (isLocked()) {
+            return;
+        }
         popup.classList.toggle("is-hidden");
         syncFabState();
     });
 
     popup.classList.toggle("is-hidden", !readOpenState());
     syncFabState();
+
+    const observer = new MutationObserver(() => syncFabState());
+    observer.observe(document.body, { attributes: true, attributeFilter: ["class"] });
 }

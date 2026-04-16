@@ -98,18 +98,30 @@ TTS_SPEAKING_RATE = float(os.getenv("TTS_SPEAKING_RATE", "0.85"))
 TTS_PITCH = float(os.getenv("TTS_PITCH", "0.0"))
 TTS_VOLUME_GAIN_DB = float(os.getenv("TTS_VOLUME_GAIN_DB", "0.0"))
 TTS_SYNTH_TIMEOUT_SECONDS = float(os.getenv("TTS_SYNTH_TIMEOUT_SECONDS", "20"))
+TTS_QUEUE_SIZE = int(os.getenv("TTS_QUEUE_SIZE", "2"))
 RUN_WEB_SERVER = os.getenv("RUN_WEB_SERVER", "1") == "1"
 VOICE_QUEUE_SIZE = int(os.getenv("VOICE_QUEUE_SIZE", "16"))
-VOICE_POLL_INTERVAL_SECONDS = float(os.getenv("VOICE_POLL_INTERVAL_SECONDS", "0.05"))
+VOICE_POLL_INTERVAL_SECONDS = float(os.getenv("VOICE_POLL_INTERVAL_SECONDS", "0.5"))
 TTS_MIC_BLOCK_COOLDOWN_SECONDS = float(os.getenv("TTS_MIC_BLOCK_COOLDOWN_SECONDS", "1.2"))
 TTS_ECHO_IGNORE_WINDOW_SECONDS = float(os.getenv("TTS_ECHO_IGNORE_WINDOW_SECONDS", "3.0"))
 VOICE_BLOCK_SLEEP_SECONDS = float(os.getenv("VOICE_BLOCK_SLEEP_SECONDS", "0.05"))
+STT_MIC_CACHE_TTL_SECONDS = float(os.getenv("STT_MIC_CACHE_TTL_SECONDS", "300"))
+STT_IDLE_LOG_INTERVAL_SECONDS = float(os.getenv("STT_IDLE_LOG_INTERVAL_SECONDS", "30"))
+MAIN_LOOP_SLEEP_SECONDS = float(os.getenv("MAIN_LOOP_SLEEP_SECONDS", "1.0"))
 
 FLASK_SECRET_KEY = os.getenv("FLASK_SECRET_KEY", "").strip() or secrets.token_hex(32)
 MONGO_URI = os.getenv("MONGO_URI", "").strip()
 MONGO_DB_NAME = os.getenv("MONGO_DB_NAME", "smart_home").strip() or "smart_home"
 AUTH_COLLECTION_NAME = os.getenv("AUTH_COLLECTION_NAME", "tai_khoan").strip() or "tai_khoan"
 CURRENT_JETSON_ID = os.getenv("CURRENT_JETSON_ID", "JETSON_001").strip() or "JETSON_001"
+ALLOW_PUBLIC_REGISTER = os.getenv("ALLOW_PUBLIC_REGISTER", "1") == "1"
+SESSION_COOKIE_SECURE = os.getenv("SESSION_COOKIE_SECURE", "1") == "1"
+SOCKET_ALLOWED_ORIGINS = tuple(
+    part.strip()
+    for part in os.getenv("SOCKET_ALLOWED_ORIGINS", "").split(",")
+    if part.strip()
+)
+WEB_SERVER_HOST = os.getenv("WEB_SERVER_HOST", "127.0.0.1").strip() or "127.0.0.1"
 
 # Khi khong phai lenh dieu khien, tro ly se tra loi hoi dap thong thuong.
 CHAT_FALLBACK_TEXT = os.getenv(

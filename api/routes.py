@@ -10,7 +10,7 @@ from flask import Blueprint, jsonify, request, session
 
 from api.auth_service import change_user_password, register_user_account, verify_user_credentials
 from api.device_api import control_device, list_devices
-from config import CURRENT_JETSON_ID
+from config import ALLOW_PUBLIC_REGISTER, CURRENT_JETSON_ID
 from controller.command_service import process_text_command
 from controller.device_registry import get_registry
 from core.device_state_store import build_devices_snapshot, remove_device_state
@@ -63,6 +63,11 @@ def _normalize_jetson_id(jetson_id):
     return str(jetson_id or "").strip()
 
 
+def _is_valid_registration_jetson_id(jetson_id: str) -> bool:
+    normalized = _normalize_jetson_id(jetson_id)
+    return normalized.upper().startswith("JETSON_") and len(normalized) > len("JETSON_")
+
+
 def _session_matches_current_jetson() -> bool:
     return _normalize_jetson_id(session.get("jetson_id")) == _normalize_jetson_id(CURRENT_JETSON_ID)
 
@@ -83,11 +88,11 @@ def require_auth(view_func):
         if not session.get("authenticated"):
             return jsonify({
                 "ok": False,
-                "message": "Vui long dang nhap de su dung he thong dieu khien.",
+                "message": "",
                 "authenticated": False,
             }), 401
         if not _session_matches_current_jetson():
-            return _reject_wrong_jetson("Tai khoan nay khong duoc phep dieu khien Jetson hien tai.")
+            return _reject_wrong_jetson("Mã jetson của bạn không khớp với thiết bị này. Vui lòng đăng nhập lại.")
         return view_func(*args, **kwargs)
 
     return wrapped
@@ -421,23 +426,23 @@ def post_device_schedule(device_id: str):
 
     action = str(payload.get("action") or "").strip().lower()
     resolved_action = registry.resolve_action_config(normalized_device, action)
-    normalized_action = str(resolved_action.get("action") or action).strip().lower()
-    if normalized_action not in {"on", "off", "power.on", "power.off"}:
+    resolved_action_key = str(resolved_action.get("action") or action).strip().lower()
+    if resolved_action_key not in {"on", "off", "power.on", "power.off", "turn_on", "turn_off", "bat", "tat"}:
         return jsonify({
             "ok": False,
             "message": "Lịch hẹn hiện chỉ hỗ trợ bật hoặc tắt thiết bị.",
         }), 400
 
-    if normalized_action not in (device_config.get("actions") or {}):
+    if resolved_action_key not in (device_config.get("actions") or {}):
         return jsonify({
             "ok": False,
-            "message": f"Thiết bị '{device_config.get('name') or normalized_device}' chưa có action '{normalized_action}'.",
+            "message": f"Thiết bị '{device_config.get('name') or normalized_device}' chưa có action '{resolved_action_key}'.",
         }), 400
 
     try:
         schedule = create_device_schedule(
             device_id=normalized_device,
-            action=normalized_action,
+            action=resolved_action_key,
             hour=payload.get("hour"),
             minute=payload.get("minute"),
             repeat=payload.get("repeat"),
@@ -487,7 +492,6 @@ def get_auth_status():
         return jsonify({
             "ok": True,
             "authenticated": False,
-            "current_jetson_id": CURRENT_JETSON_ID,
         })
 
     if not _session_matches_current_jetson():
@@ -517,10 +521,7 @@ def post_auth_login():
     if account_jetson_id != _normalize_jetson_id(CURRENT_JETSON_ID):
         return jsonify({
             "ok": False,
-            "message": (
-                f"Mã jetson không hợp lệ"  
-            ),
-            "current_jetson_id": CURRENT_JETSON_ID,
+            "message": "Tai khoan nay khong duoc phep truy cap thiet bi nay.",
         }), 403
 
     session.clear()
@@ -539,13 +540,18 @@ def post_auth_login():
 @api_bp.post("/auth/register")
 def post_auth_register():
     payload = request.get_json(silent=True) or {}
-    requested_jetson_id = _normalize_jetson_id(payload.get("jetson_id"))
-    if requested_jetson_id != _normalize_jetson_id(CURRENT_JETSON_ID):
+    if not ALLOW_PUBLIC_REGISTER:
         return jsonify({
             "ok": False,
-            "message": f"Chi duoc dang ky tai khoan cho Jetson {CURRENT_JETSON_ID} tren thiet bi nay.",
-            "current_jetson_id": CURRENT_JETSON_ID,
+            "message": "",
         }), 403
+
+    requested_jetson_id = _normalize_jetson_id(payload.get("jetson_id"))
+    if not _is_valid_registration_jetson_id(requested_jetson_id):
+        return jsonify({
+            "ok": False,
+            "message": "Mã jetson không hợp lệ !",
+        }), 400
 
     result = register_user_account(
         email=payload.get("email"),
@@ -556,7 +562,7 @@ def post_auth_register():
     if not result.get("ok"):
         return jsonify({
             "ok": False,
-            "message": result.get("message") or "Dang ky that bai.",
+            "message": result.get("message") or "Đang ký thất bại.",
         }), int(result.get("status") or 400)
 
     session.clear()

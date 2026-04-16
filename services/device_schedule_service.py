@@ -21,11 +21,11 @@ def _now() -> datetime:
     return datetime.now(_TZ)
 
 
-def _normalize_action(action: Any) -> str:
+def _normalize_action_kind(action: Any) -> str:
     normalized = str(action or "").strip().lower()
-    if normalized in {"on", "power.on"}:
+    if normalized in {"on", "power.on", "turn_on", "bat"}:
         return "power.on"
-    if normalized in {"off", "power.off"}:
+    if normalized in {"off", "power.off", "turn_off", "tat"}:
         return "power.off"
     raise ValueError("Action lịch hẹn chỉ hỗ trợ bật hoặc tắt.")
 
@@ -85,8 +85,12 @@ def _build_next_run_at(hour: int, minute: int, now: datetime | None = None) -> s
 def _serialize_schedule(schedule: Dict[str, Any], now: datetime | None = None) -> Dict[str, Any]:
     current = now or _now()
     payload = dict(schedule)
+    action_kind = str(payload.get("action_kind") or "").strip().lower()
+    if not action_kind:
+        action_kind = _normalize_action_kind(payload.get("action"))
+        payload["action_kind"] = action_kind
     payload["time_label"] = f"{int(payload.get('hour', 0)):02d}:{int(payload.get('minute', 0)):02d}"
-    payload["action_label"] = "Bật" if payload.get("action") == "power.on" else "Tắt"
+    payload["action_label"] = "Bật" if action_kind == "power.on" else "Tắt"
     payload["repeat_label"] = "Lặp lại hằng ngày" if payload.get("repeat") else "Một lần"
     next_run_at = str(payload.get("next_run_at") or "").strip()
     if payload.get("repeat"):
@@ -128,7 +132,10 @@ def create_device_schedule(device_id: str, action: Any, hour: Any, minute: Any, 
     if not normalized_device_id:
         raise ValueError("Thiếu device_id để tạo lịch hẹn.")
 
-    normalized_action = _normalize_action(action)
+    resolved_action = str(action or "").strip().lower()
+    if not resolved_action:
+        raise ValueError("Thiếu action để tạo lịch hẹn.")
+    normalized_action_kind = _normalize_action_kind(resolved_action)
     normalized_hour = _normalize_hour(hour)
     normalized_minute = _normalize_minute(minute)
     normalized_repeat = bool(repeat)
@@ -137,7 +144,8 @@ def create_device_schedule(device_id: str, action: Any, hour: Any, minute: Any, 
     schedule = {
         "id": f"sch_{secrets.token_hex(6)}",
         "device_id": normalized_device_id,
-        "action": normalized_action,
+        "action": resolved_action,
+        "action_kind": normalized_action_kind,
         "hour": normalized_hour,
         "minute": normalized_minute,
         "repeat": normalized_repeat,

@@ -1,4 +1,4 @@
-<section id="chatbot-popup" class="chatbot-popup is-hidden glass-card" aria-hidden="true">
+<section id="chatbot-popup" class="chatbot-popup is-hidden glass-card" aria-hidden="true" {% if not initial_authenticated %}hidden{% endif %}>
     <header class="chatbot-popup-header">
         <div>
             <p class="section-kicker">SmartHome AI</p>
@@ -26,6 +26,6 @@
 </section>
 
 <button id="chatbot-fab" class="chatbot-fab" type="button" aria-label="Mở chatbot" aria-controls="chatbot-popup"
-    aria-expanded="false">
+    aria-expanded="false" {% if not initial_authenticated %}hidden{% endif %}>
     <span class="chatbot-fab-icon" aria-hidden="true">💬</span>
 </button>

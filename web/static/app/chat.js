@@ -1,5 +1,10 @@
 import { app } from "./core.js";
 import { fetchJson } from "./api.js";
+import {
+    checkMicrophonePermissionState,
+    checkMicrophoneSupport,
+    requestMicrophoneAccess,
+} from "../js/mic-permission.js";
 import { createMessageId, hasRecentMessage, normalizeMessageText, rememberRecentMessage } from "./utils.js";
 import {
     addChatMessage,
@@ -30,14 +35,6 @@ function getCurrentMicOriginContext() {
         origin,
         path: pathname,
     };
-}
-
-function _supportsPermissionsApi() {
-    return typeof navigator !== "undefined" && !!navigator.permissions?.query;
-}
-
-function _supportsGetUserMedia() {
-    return typeof navigator !== "undefined" && !!navigator.mediaDevices?.getUserMedia;
 }
 
 function readCachedMicrophonePermission() {
@@ -95,26 +92,42 @@ function getKnownMicrophonePermissionState() {
 }
 
 function _buildPermissionUi(permissionState) {
+    if (permissionState === "https_required") {
+        return {
+            text: "HTTPS required",
+            transcript: "Microphone chỉ hoạt động trên HTTPS hoặc localhost. Hãy mở website bằng tunnel HTTPS hoặc domain bảo mật.",
+            statusText: "HTTPS là bắt buộc để dùng microphone",
+            statusMode: "error",
+        };
+    }
+    if (permissionState === "unsupported_browser") {
+        return {
+            text: "Browser does not support microphone",
+            transcript: "Trình duyệt hiện tại thiếu hỗ trợ microphone hoặc MediaDevices. Hãy dùng Chrome Android hoặc Safari iOS mới.",
+            statusText: "Trình duyệt không hỗ trợ microphone",
+            statusMode: "error",
+        };
+    }
     if (permissionState === "granted") {
         return {
-            text: "Micro đã được cho phép",
-            transcript: "Trình duyệt đang nhớ quyền micro cho website này.",
-            statusText: "Micro đã sẵn sàng, không cần xin lại nếu browser vẫn giữ quyền.",
+            text: "Microphone ready",
+            transcript: "Quyền microphone đã sẵn sàng cho origin hiện tại. Nhấn nút mic để bắt đầu nói.",
+            statusText: "Microphone ready",
             statusMode: "live",
         };
     }
     if (permissionState === "denied") {
         return {
-            text: "Micro đang bị chặn",
-            transcript: "Trình duyệt đang chặn quyền micro. Hãy mở cài đặt quyền của website và chuyển sang Allow.",
-            statusText: "Quyền micro đang bị chặn ở phía trình duyệt",
+            text: "Microphone blocked",
+            transcript: "Trình duyệt đang chặn microphone. Hãy mở cài đặt site của trình duyệt và chuyển Microphone sang Allow.",
+            statusText: "Microphone blocked",
             statusMode: "error",
         };
     }
     return {
         text: "Micro cần cấp quyền",
-        transcript: "Trình duyệt vẫn đang ở trạng thái hỏi quyền micro. Nếu muốn khỏi hỏi lại, hãy đổi quyền site sang Allow.",
-        statusText: "Website chưa được browser nhớ quyền micro lâu dài",
+        transcript: "Website chưa có quyền microphone ổn định. Chỉ khi bạn chạm nút mic hệ thống mới xin quyền.",
+        statusText: "Website chưa có quyền microphone",
         statusMode: "processing",
     };
 }
@@ -143,34 +156,49 @@ function showMicPermissionMessage(message, options = {}) {
 }
 
 export async function refreshMicrophonePermissionStatus() {
+    const support = checkMicrophoneSupport();
+    if (!support.secureContext) {
+        applyMicrophonePermissionUi("https_required");
+        return "https_required";
+    }
+    if (!support.supported) {
+        applyMicrophonePermissionUi("unsupported_browser");
+        return "unsupported_browser";
+    }
+
     const cachedPermissionState = getCachedMicrophonePermissionState();
-    if (cachedPermissionState && !_supportsPermissionsApi()) {
+    const permissionResult = await checkMicrophonePermissionState();
+
+    if (cachedPermissionState && !permissionResult.canQuery) {
         applyMicrophonePermissionUi(cachedPermissionState);
         return cachedPermissionState;
     }
-    if (!_supportsPermissionsApi()) {
-        return "";
-    }
+
     try {
-        if (!microphonePermissionStatus) {
-            microphonePermissionStatus = await navigator.permissions.query({ name: "microphone" });
+        if (!microphonePermissionStatus && permissionResult.permissionStatus) {
+            microphonePermissionStatus = permissionResult.permissionStatus;
             microphonePermissionStatus.onchange = () => {
                 const nextState = String(microphonePermissionStatus?.state || "prompt");
                 writeCachedMicrophonePermission(nextState);
                 applyMicrophonePermissionUi(nextState);
             };
         }
-        const permissionState = String(microphonePermissionStatus.state || "prompt");
+        const permissionState = _normalizePermissionState(permissionResult.state);
+        if (!permissionState) {
+            applyMicrophonePermissionUi("prompt");
+            return "prompt";
+        }
         writeCachedMicrophonePermission(permissionState);
         applyMicrophonePermissionUi(permissionState);
         return permissionState;
     } catch (error) {
-        console.warn("[voice-chat] permissions.query(microphone) failed", error);
+        console.warn("[voice-chat] microphone permission status failed", error);
         if (cachedPermissionState) {
             applyMicrophonePermissionUi(cachedPermissionState);
             return cachedPermissionState;
         }
-        return "";
+        applyMicrophonePermissionUi("prompt");
+        return "prompt";
     }
 }
 
@@ -179,9 +207,13 @@ export async function checkMicPermission() {
 }
 
 export async function requestMicPermission() {
-    const currentPermissionState = _normalizePermissionState(await checkMicPermission());
+    const currentPermissionState = String(await checkMicPermission() || "").trim();
     if (currentPermissionState === "granted") {
         return "granted";
+    }
+    if (currentPermissionState === "https_required" || currentPermissionState === "unsupported_browser") {
+        applyMicrophonePermissionUi(currentPermissionState);
+        return currentPermissionState;
     }
     if (currentPermissionState === "denied") {
         showMicPermissionMessage(
@@ -190,13 +222,9 @@ export async function requestMicPermission() {
         );
         return "denied";
     }
-    if (!_supportsGetUserMedia()) {
-        return currentPermissionState || "";
-    }
 
     if (!microphonePermissionRequest) {
         microphonePermissionRequest = (async () => {
-            let tempStream = null;
             try {
                 setChatStatus("Trình duyệt đang xin quyền micro, hãy bấm Allow", "processing");
                 setVoiceUiState({
@@ -209,21 +237,52 @@ export async function requestMicPermission() {
                     { fingerprint: "mic-permission-requesting" }
                 );
 
-                // Chỉ dùng getUserMedia khi thật sự cần xin quyền từ user gesture.
-                // Stream này không thể được giữ qua navigation/reload giữa 2 page.
-                // Browser chỉ có thể nhớ quyền nếu vẫn coi đây là cùng origin/site context.
-                tempStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                const accessResult = await requestMicrophoneAccess();
+                if (!accessResult.ok) {
+                    if (accessResult.code === "https_required") {
+                        applyMicrophonePermissionUi("https_required");
+                        showMicPermissionMessage(
+                            "Website này cần HTTPS hoặc localhost để dùng microphone.",
+                            { fingerprint: "mic-permission-https-required", isError: true }
+                        );
+                        return "https_required";
+                    }
+                    if (accessResult.code === "unsupported_browser") {
+                        applyMicrophonePermissionUi("unsupported_browser");
+                        showMicPermissionMessage(
+                            "Trình duyệt hiện tại không hỗ trợ microphone. Hãy dùng Chrome Android hoặc Safari iOS mới.",
+                            { fingerprint: "mic-permission-unsupported", isError: true }
+                        );
+                        return "unsupported_browser";
+                    }
+                    if (accessResult.code === "microphone_blocked") {
+                        writeCachedMicrophonePermission("denied");
+                        applyMicrophonePermissionUi("denied");
+                        showMicPermissionMessage(
+                            "Bạn đã từ chối quyền micro. Hãy mở cài đặt site của trình duyệt và chuyển Microphone sang Allow.",
+                            { fingerprint: "mic-permission-denied", isError: true }
+                        );
+                        return "denied";
+                    }
+                    applyMicrophonePermissionUi("prompt");
+                    showMicPermissionMessage(
+                        accessResult.message || "Chưa lấy được quyền microphone. Hãy thử chạm nút mic lại.",
+                        { fingerprint: "mic-permission-prompt", isError: true }
+                    );
+                    return "prompt";
+                }
+
                 writeCachedMicrophonePermission("granted");
                 applyMicrophonePermissionUi("granted");
                 showMicPermissionMessage(
-                    "Đã cấp quyền micro cho website này. Chrome Android sẽ ổn định hơn nếu bạn tiếp tục ở cùng origin và cùng app context.",
+                    accessResult.reused
+                        ? "Microphone đã sẵn sàng cho lần dùng này."
+                        : "Đã cấp quyền microphone cho website này.",
                     { fingerprint: "mic-permission-granted" }
                 );
                 return "granted";
             } catch (error) {
-                const permissionState = error?.name === "NotAllowedError" || error?.name === "SecurityError"
-                    ? "denied"
-                    : "prompt";
+                const permissionState = error?.name === "NotAllowedError" || error?.name === "SecurityError" ? "denied" : "prompt";
                 writeCachedMicrophonePermission(permissionState);
                 applyMicrophonePermissionUi(permissionState);
                 if (permissionState === "denied") {
@@ -240,7 +299,6 @@ export async function requestMicPermission() {
                 console.warn("[voice-chat] getUserMedia() microphone permission failed", error);
                 return permissionState;
             } finally {
-                tempStream?.getTracks?.().forEach((track) => track.stop());
                 microphonePermissionRequest = null;
             }
         })();
@@ -259,6 +317,22 @@ function showDeniedMicrophoneState() {
     showMicPermissionMessage(
         "Micro đang bị chặn. Trên điện thoại: mở menu trình duyệt hoặc biểu tượng ổ khóa của website, vào Site settings và bật Microphone = Allow.",
         { fingerprint: "mic-permission-start-denied", isError: true }
+    );
+}
+
+function showInsecureMicrophoneState() {
+    applyMicrophonePermissionUi("https_required", { preserveListening: false });
+    showMicPermissionMessage(
+        "Website cần HTTPS hoặc localhost để dùng microphone. Nếu bạn public qua Internet, hãy dùng URL HTTPS.",
+        { fingerprint: "mic-permission-start-https", isError: true }
+    );
+}
+
+function showUnsupportedMicrophoneState() {
+    applyMicrophonePermissionUi("unsupported_browser", { preserveListening: false });
+    showMicPermissionMessage(
+        "Trình duyệt hiện tại không hỗ trợ microphone hoặc MediaDevices. Hãy dùng Chrome Android hoặc Safari iOS mới.",
+        { fingerprint: "mic-permission-start-unsupported", isError: true }
     );
 }
 
@@ -590,6 +664,16 @@ export function stopMic(options = {}) {
 }
 
 export async function startMic() {
+    const micSupport = checkMicrophoneSupport();
+    if (!micSupport.secureContext) {
+        showInsecureMicrophoneState();
+        return;
+    }
+    if (!micSupport.supported) {
+        showUnsupportedMicrophoneState();
+        return;
+    }
+
     if (!app.constants.SpeechRecognitionApi) {
         addChatMessage("system", "Trình duyệt này chưa hỗ trợ nhận diện giọng nói. Hãy dùng Chrome hoặc Edge mới để dùng micro.", Date.now(), {
             isError: true,
@@ -623,6 +707,14 @@ export async function startMic() {
     }
 
     const permissionState = await checkMicPermission();
+    if (permissionState === "https_required") {
+        showInsecureMicrophoneState();
+        return;
+    }
+    if (permissionState === "unsupported_browser") {
+        showUnsupportedMicrophoneState();
+        return;
+    }
     if (permissionState === "denied") {
         showDeniedMicrophoneState();
         return;
@@ -630,6 +722,18 @@ export async function startMic() {
 
     const grantedState = await requestMicPermission();
     if (grantedState !== "granted") {
+        if (grantedState === "https_required") {
+            showInsecureMicrophoneState();
+            return;
+        }
+        if (grantedState === "unsupported_browser") {
+            showUnsupportedMicrophoneState();
+            return;
+        }
+        if (grantedState === "denied") {
+            showDeniedMicrophoneState();
+            return;
+        }
         setChatStatus("Micro chưa được cấp quyền ổn định", "error");
         return;
     }

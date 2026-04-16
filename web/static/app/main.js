@@ -1,6 +1,7 @@
 import { app } from "./core.js";
 import { bootstrapAuthentication, handleLogout, submitLogin, submitPasswordChange } from "./auth.js";
 import { startMic, stopMic } from "./chat.js";
+import { stopMicrophoneTracks } from "../js/mic-permission.js";
 import {
     closeAddDeviceModal,
     closeAddFunctionButtonModal,
@@ -129,6 +130,7 @@ export function startApp() {
     bindEvents();
     window.addEventListener("pagehide", () => {
         stopMic({ force: true, updateUi: false });
+        stopMicrophoneTracks();
     });
     registerPwaServiceWorker();
     bootstrapAuthentication();

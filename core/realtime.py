@@ -1,5 +1,6 @@
 import time
 
+from config import DEBUG_VOICE
 from core.event_bus import log_event
 
 
@@ -23,12 +24,13 @@ def emit_event(event_name: str, payload: dict):
 
     try:
         socketio.emit(event_name, payload)
-        log_event(
-            source="realtime",
-            level="info",
-            message="Emit event thanh cong",
-            payload={"event_name": event_name, "payload": payload},
-        )
+        if DEBUG_VOICE:
+            log_event(
+                source="realtime",
+                level="info",
+                message="Emit event thanh cong",
+                payload={"event_name": event_name, "payload": payload},
+            )
         return True
     except Exception as exc:
         log_event(

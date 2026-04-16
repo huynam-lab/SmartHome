@@ -6,6 +6,7 @@ import subprocess
 import tempfile
 import threading
 import time
+from queue import Empty, Full, Queue
 from typing import Dict, Optional
 
 try:
@@ -16,7 +17,7 @@ except Exception as exc:  # pragma: no cover
 else:
     _EDGE_TTS_IMPORT_ERROR = ""
 
-from config import ENABLE_TTS, TTS_MIC_BLOCK_COOLDOWN_SECONDS, TTS_SYNTH_TIMEOUT_SECONDS, TTS_VOICE_NAME
+from config import ENABLE_TTS, TTS_MIC_BLOCK_COOLDOWN_SECONDS, TTS_QUEUE_SIZE, TTS_SYNTH_TIMEOUT_SECONDS, TTS_VOICE_NAME
 from core.event_bus import log_event
 from core.voice_state import set_assistant_speaking, update_last_tts
 from services.music_player import get_music_player
@@ -30,6 +31,9 @@ _DEFAULT_PLAYER_CANDIDATES = [
     ["mpg123", "-q"],
     ["mpv", "--really-quiet"],
 ]
+_TTS_QUEUE: "Queue[str]" = Queue(maxsize=max(1, int(TTS_QUEUE_SIZE)))
+_TTS_WORKER_THREAD: Optional[threading.Thread] = None
+_TTS_WORKER_LOCK = threading.Lock()
 
 
 def _log_tts(level: str, message: str, payload: Optional[Dict] = None) -> None:
@@ -345,14 +349,66 @@ def speak_text(text: str) -> bool:
 
 
 def speak_text_async(text: str) -> bool:
-    """Chạy TTS nền để không chặn luồng trả response/log."""
+    """Đẩy TTS vào worker nền cố định để tránh sinh quá nhiều thread."""
     if not text:
         _log_tts("warning", "skip empty text async", {"text": text})
         return False
 
-    worker = threading.Thread(target=speak_text, args=(text,), daemon=True)
-    worker.start()
-    _log_tts("info", "async worker started", {"text": text, "thread_name": worker.name})
+    _ensure_tts_worker()
+    normalized_text = " ".join(str(text).strip().split())
+    if not normalized_text:
+        _log_tts("warning", "skip normalized empty text async", {"text": text})
+        return False
+
+    try:
+        _TTS_QUEUE.put_nowait(normalized_text)
+        _log_tts("info", "tts queued", {"text": normalized_text, "queue_size": _TTS_QUEUE.qsize()})
+        return True
+    except Full:
+        dropped_text = None
+        try:
+            dropped_text = _TTS_QUEUE.get_nowait()
+        except Empty:
+            pass
+
+        try:
+            _TTS_QUEUE.put_nowait(normalized_text)
+            _log_tts(
+                "warning",
+                "tts queue full, dropped oldest pending item",
+                {"dropped_text": dropped_text, "text": normalized_text, "queue_size": _TTS_QUEUE.qsize()},
+            )
+            return True
+        except Full:
+            _log_tts("error", "tts queue still full after drop", {"text": normalized_text, "dropped_text": dropped_text})
+            return False
+
+
+def _tts_worker_loop() -> None:
+    while True:
+        text = _TTS_QUEUE.get()
+        try:
+            speak_text(text)
+        except Exception as exc:
+            _log_tts("error", "tts worker failed", {"text": text, "error": repr(exc)})
+        finally:
+            _TTS_QUEUE.task_done()
+
+
+def _ensure_tts_worker() -> None:
+    global _TTS_WORKER_THREAD
+    worker = _TTS_WORKER_THREAD
+    if worker and worker.is_alive():
+        return
+
+    with _TTS_WORKER_LOCK:
+        worker = _TTS_WORKER_THREAD
+        if worker and worker.is_alive():
+            return
+        worker = threading.Thread(target=_tts_worker_loop, name="tts-worker", daemon=True)
+        worker.start()
+        _TTS_WORKER_THREAD = worker
+        _log_tts("info", "tts worker started", {"thread_name": worker.name, "queue_size": _TTS_QUEUE.maxsize})
     return True
 
 

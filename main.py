@@ -7,7 +7,17 @@ from flask import Flask, redirect, render_template, request, send_from_directory
 from flask_socketio import SocketIO, disconnect
 
 from api.routes import api_bp
-from config import CURRENT_JETSON_ID, FLASK_SECRET_KEY, RUN_WEB_SERVER, VOICE_POLL_INTERVAL_SECONDS, VOICE_QUEUE_SIZE
+from config import (
+    CURRENT_JETSON_ID,
+    FLASK_SECRET_KEY,
+    MAIN_LOOP_SLEEP_SECONDS,
+    RUN_WEB_SERVER,
+    SESSION_COOKIE_SECURE,
+    SOCKET_ALLOWED_ORIGINS,
+    VOICE_POLL_INTERVAL_SECONDS,
+    VOICE_QUEUE_SIZE,
+    WEB_SERVER_HOST,
+)
 from controller.command_service import is_exit_command, process_text_command
 from core.device_state_store import build_devices_snapshot
 from core.event_bus import log_event
@@ -19,7 +29,11 @@ from speech.speech_to_text import print_microphone_list, recognize_once
 from speech.tts import speak_text
 
 
-socketio = SocketIO(cors_allowed_origins="*", async_mode="threading", manage_session=False)
+socketio = SocketIO(
+    cors_allowed_origins=list(SOCKET_ALLOWED_ORIGINS) if SOCKET_ALLOWED_ORIGINS else [],
+    async_mode="threading",
+    manage_session=False,
+)
 
 
 def create_app():
@@ -33,8 +47,9 @@ def create_app():
         SECRET_KEY=FLASK_SECRET_KEY,
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
-        SESSION_COOKIE_SECURE=False,
+        SESSION_COOKIE_SECURE=SESSION_COOKIE_SECURE,
         PERMANENT_SESSION_LIFETIME=timedelta(hours=12),
+        PREFERRED_URL_SCHEME="https",
     )
 
     @app.after_request
@@ -126,7 +141,7 @@ def run_jetson_voice_listener(stop_event: threading.Event, voice_queue: Queue):
 
     while not stop_event.is_set():
         if is_assistant_speaking():
-            time.sleep(0.05)
+            stop_event.wait(0.1)
             continue
 
         text = recognize_once()
@@ -167,11 +182,11 @@ def run_jetson_command_worker(stop_event: threading.Event, voice_queue: Queue):
 
         # "ve thoi" chi dung xu ly lenh, KHONG tat he thong
         if is_exit_command(text):
-            result = process_text_command(text, source="jetson-mic")
+            process_text_command(text, source="jetson-mic")
             voice_queue.task_done()
             continue
 
-        result = process_text_command(text, source="jetson-mic")
+        process_text_command(text, source="jetson-mic")
         voice_queue.task_done()
 
 
@@ -207,12 +222,19 @@ if __name__ == "__main__":
     if RUN_WEB_SERVER:
         app = create_app()
         try:
-            socketio.run(app, host="0.0.0.0", port=5000, debug=False, use_reloader=False)
+            socketio.run(
+                app,
+                host=WEB_SERVER_HOST,
+                port=5000,
+                debug=False,
+                use_reloader=False,
+                allow_unsafe_werkzeug=True,
+            )
         finally:
             stop_event.set()
     else:
         try:
             while not stop_event.is_set():
-                time.sleep(0.3)
+                stop_event.wait(max(0.1, MAIN_LOOP_SLEEP_SECONDS))
         except KeyboardInterrupt:
             stop_event.set()

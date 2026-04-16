@@ -1,0 +1,6 @@
+*.pyc
+__pycache__/
+.codex
+app.log
+cloudflared.log
+cloudflared-linux-arm64.deb
