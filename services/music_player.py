@@ -28,7 +28,7 @@ class MusicPlayer:
         command_timeout: float = 4.0,
         startup_timeout: float = 8.0,
         yt_timeout: float = 15.0,
-        autoplay_count: int = 1,
+        autoplay_count: int = 5,
         playlist_cache_ttl: float = 300.0,
     ) -> None:
         self.socket_path = socket_path
