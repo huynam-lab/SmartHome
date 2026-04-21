@@ -1,9 +1,11 @@
 import threading
 import time
+import logging
 from datetime import timedelta
 from queue import Empty, Full, Queue
 
 from flask import Flask, redirect, render_template, request, send_from_directory, session
+from flask import cli as flask_cli
 from flask_socketio import SocketIO, disconnect
 
 from api.routes import api_bp
@@ -25,7 +27,7 @@ from core.realtime import emit_system_log, init_socketio
 from core.voice_state import is_assistant_speaking
 from devices.broadlink.discover import prewarm_device_cache
 from services.device_schedule_service import start_device_schedule_worker
-from speech.speech_to_text import print_microphone_list, recognize_once
+from speech.speech_to_text import recognize_once
 from speech.tts import speak_text
 
 
@@ -69,14 +71,18 @@ def create_app():
             "index.html",
             initial_authenticated=bool(session.get("authenticated")),
             initial_jetson_id=str(session.get("jetson_id") or "").strip(),
+            initial_page="index",
+            initial_device_id="",
+            initial_device_name="",
         )
 
     @app.get("/device-control")
     def device_control():
         return render_template(
-            "device-control.html",
+            "index.html",
             initial_authenticated=bool(session.get("authenticated")),
             initial_jetson_id=str(session.get("jetson_id") or "").strip(),
+            initial_page="device-control",
             initial_device_id=str(request.args.get("device_id") or "").strip(),
             initial_device_name=str(request.args.get("device_name") or "").strip(),
         )
@@ -194,10 +200,8 @@ if __name__ == "__main__":
     stop_event = threading.Event()
     voice_queue = Queue(maxsize=VOICE_QUEUE_SIZE)
 
-    try:
-        print_microphone_list()
-    except Exception as exc:
-        log_event(source="bootstrap", level="error", message="Không in được danh sách microphone", payload={"error": repr(exc)})
+    flask_cli.show_server_banner = lambda *args, **kwargs: None
+    logging.getLogger("werkzeug").setLevel(logging.ERROR)
 
     # try:
     #     speak_text("Hệ thống smart home đã khởi động.")

@@ -24,6 +24,28 @@ _NOISY_CONSOLE_SOURCES = {
     "intent-parser",
     "semantic-resolver",
     "gemini",
+    "device-state",
+    "device-control",
+    "rf-controller",
+    "broadlink-rf",
+    "broadlink-ir",
+    "broadlink-discover",
+    "device-schedule",
+    "realtime",
+}
+_CONSOLE_SOURCE_ALIAS = {
+    "tts": "speaker",
+    "music-player": "speaker",
+    "stt": "mic",
+    "jetson-mic": "mic",
+    "voice-worker": "mic",
+    "broadlink-rf": "broadlink",
+    "broadlink-ir": "broadlink",
+    "broadlink-discover": "broadlink",
+    "rf-controller": "broadlink",
+    "device-control": "broadlink",
+    "device-state": "device",
+    "device-schedule": "schedule",
 }
 _REDACTED_PAYLOAD_KEYS = {
     "text",
@@ -72,7 +94,7 @@ def _should_print_console_event(event: Dict[str, Any]) -> bool:
         return True
     if level in {"error", "warning"}:
         return True
-    return source not in _NOISY_CONSOLE_SOURCES
+    return source not in _NOISY_CONSOLE_SOURCES and level not in {"info", "success"}
 
 
 def _should_include_console_payload(event: Dict[str, Any]) -> bool:
@@ -85,12 +107,17 @@ def _should_include_console_payload(event: Dict[str, Any]) -> bool:
 def _format_console_event(event: Dict[str, Any]) -> str:
     ts = int(event.get("ts") or 0)
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts / 1000 if ts else time.time()))
-    source = str(event.get("source") or "unknown")
-    level = str(event.get("level") or "info").upper()
+    source = str(event.get("source") or "unknown").strip()
+    normalized_source = source.lower()
+    level = str(event.get("level") or "info").lower()
     message = str(event.get("message") or "").strip()
     payload = _sanitize_console_payload(event) if _should_include_console_payload(event) else {}
 
-    base = f"[{timestamp}] [{level}] [{source}] {message}"
+    if not DEBUG_VOICE and level in {"error", "warning"}:
+        label = _CONSOLE_SOURCE_ALIAS.get(normalized_source, normalized_source or "system")
+        return f"[{timestamp}] {label}: false"
+
+    base = f"[{timestamp}] [{level.upper()}] [{source}] {message}"
     if not payload:
         return base
 

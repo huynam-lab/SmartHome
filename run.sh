@@ -18,8 +18,6 @@ if [ -f ".env" ]; then
   set +a
 fi
 
-export PYTHONDONTWRITEBYTECODE=1
-
 APP_HOST="${WEB_SERVER_HOST:-127.0.0.1}"
 APP_PORT="${WEB_SERVER_PORT:-5000}"
 
@@ -82,14 +80,14 @@ wait_for_app() {
 
 start_tunnel() {
   local cloudflared_bin="$1"
+  local tunnel_error_file=""
   rm -f "$LINK_FILE"
   TUNNEL_PIPE="$(mktemp -u /tmp/cloudflared.pipe.XXXXXX)"
   mkfifo "$TUNNEL_PIPE"
+  tunnel_error_file="$(mktemp /tmp/cloudflared.err.XXXXXX)"
 
   (
     while IFS= read -r line; do
-      printf '%s\n' "$line" >&2
-
       if [ ! -s "$LINK_FILE" ]; then
         local_tunnel_url="$(printf '%s\n' "$line" | grep -oE 'https://[-[:alnum:]]+\.trycloudflare\.com' | head -n 1 || true)"
         if [ -n "$local_tunnel_url" ]; then
@@ -98,11 +96,15 @@ start_tunnel() {
           printf 'Saved to %s\n' "$LINK_FILE"
         fi
       fi
+
+      if printf '%s\n' "$line" | grep -qiE 'error|failed'; then
+        printf '%s\n' "$line" >"$tunnel_error_file"
+      fi
     done <"$TUNNEL_PIPE"
   ) &
   TUNNEL_READER_PID="$!"
 
-  "$cloudflared_bin" tunnel --url "http://$APP_HOST:$APP_PORT" --no-autoupdate >"$TUNNEL_PIPE" 2>&1 &
+  "$cloudflared_bin" tunnel --url "http://$APP_HOST:$APP_PORT" --no-autoupdate --loglevel info >"$TUNNEL_PIPE" 2>&1 &
   CLOUDFLARED_PID="$!"
 
   local i
@@ -112,19 +114,25 @@ start_tunnel() {
     fi
 
     if ! kill -0 "$CLOUDFLARED_PID" >/dev/null 2>&1; then
-      printf 'cloudflared exited early.\n' >&2
+      if [ -s "$tunnel_error_file" ]; then
+        printf 'cloudflared: false\n' >&2
+      else
+        printf 'cloudflared exited early.\n' >&2
+      fi
+      rm -f "$tunnel_error_file"
       return 1
     fi
     sleep 1
   done
 
+  rm -f "$tunnel_error_file"
   printf 'Timed out waiting for Cloudflare Tunnel URL.\n' >&2
   return 1
 }
 
 trap cleanup EXIT INT TERM
 
-"$PYTHON_BIN" -B main.py &
+"$PYTHON_BIN" main.py &
 APP_PID="$!"
 
 if ! wait_for_app; then

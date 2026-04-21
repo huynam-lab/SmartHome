@@ -28,8 +28,8 @@ _REQUIRED_TTS_VOICE = "vi-VN-HoaiMyNeural"
 _TTS_VOICE = _REQUIRED_TTS_VOICE
 _TTS_RATE = "-20%"
 _DEFAULT_PLAYER_CANDIDATES = [
-    ["mpg123", "-q"],
-    ["mpv", "--really-quiet"],
+    ["mpv", "--really-quiet", "--no-video", "--audio-display=no", "--keep-open=no"],
+    ["ffplay", "-nodisp", "-autoexit", "-loglevel", "error"],
 ]
 _TTS_QUEUE: "Queue[str]" = Queue(maxsize=max(1, int(TTS_QUEUE_SIZE)))
 _TTS_WORKER_THREAD: Optional[threading.Thread] = None
@@ -162,7 +162,7 @@ def _play_audio(audio_path: str) -> Dict[str, object]:
         _log_tts("info", "player command", {"command": command, "audio_path": audio_path})
 
         try:
-            result = subprocess.run(command, check=False, capture_output=True, text=True)
+            result = subprocess.run(command, check=False, capture_output=True, text=True, timeout=20)
             payload = {
                 "audio_path": audio_path,
                 "command": command,
@@ -176,6 +176,14 @@ def _play_audio(audio_path: str) -> Dict[str, object]:
 
             failures.append(payload)
             _log_tts("warning", "playback failed, trying next player", payload)
+        except subprocess.TimeoutExpired as exc:
+            payload = {
+                "audio_path": audio_path,
+                "command": command,
+                "error": f"timeout after {exc.timeout}s",
+            }
+            failures.append(payload)
+            _log_tts("warning", "playback timeout, trying next player", payload)
         except Exception as exc:
             payload = {"audio_path": audio_path, "command": command, "error": repr(exc)}
             failures.append(payload)

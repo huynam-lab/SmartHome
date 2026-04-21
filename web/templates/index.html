@@ -23,7 +23,8 @@
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 </head>
 
-<body class="app-preboot {% if not initial_authenticated %}auth-locked{% endif %}" data-page="index">
+<body class="app-preboot {% if initial_page == 'device-control' %}device-control-screen {% endif %}{% if not initial_authenticated %}auth-locked{% endif %}"
+    data-page="{{ initial_page or 'index' }}">
     <div class="app-preboot-loader" aria-hidden="true">
         <div class="app-preboot-spinner"></div>
     </div>
@@ -123,7 +124,8 @@
             </div>
         </section>
 
-        <section class="chat-device-grid">
+        <section id="device-center-page" class="chat-device-grid {% if initial_page == 'device-control' %}is-hidden{% endif %}"
+            aria-hidden="{% if initial_page == 'device-control' %}true{% else %}false{% endif %}">
             <section class="chat-panel glass-card">
                 <header class="chat-panel-header">
                     <div>
@@ -180,6 +182,47 @@
                 </aside>
 
             </section>
+        </section>
+
+        <section id="device-control-page" class="device-control-page glass-card {% if initial_page != 'device-control' %}is-hidden{% endif %}"
+            aria-hidden="{% if initial_page == 'device-control' %}false{% else %}true{% endif %}">
+            <header class="device-control-header">
+                <button id="device-control-back-btn" type="button"
+                    class="primary-btn secondary-tone device-control-back-btn">
+                    Quay lại
+                </button>
+                <div class="device-control-title-wrap">
+                    <p class="section-kicker">Điều khiển thiết bị</p>
+                    <h2 id="device-control-title">{{ initial_device_name or "Thiết bị" }}</h2>
+                    <p id="device-control-subtitle" class="device-control-subtitle">{% if initial_device_name %}Đang tải
+                        điều khiển cho {{ initial_device_name }}.{% else %}Chọn chức năng để điều khiển thiết bị.{%
+                        endif %}</p>
+                </div>
+                <button id="device-schedule-trigger-btn" type="button" class="device-control-icon-btn"
+                    aria-label="Mở hẹn giờ thiết bị">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+                        stroke-linejoin="round" aria-hidden="true" focusable="false">
+                        <circle cx="12" cy="12" r="10" />
+                        <polyline points="12 6 12 12 16 14" />
+                    </svg>
+                </button>
+            </header>
+
+            <div id="device-control-status-banner" class="device-status-banner">
+                <div>
+                    <span class="info-label">Trạng thái hiện tại</span>
+                    <div class="device-status-text">
+                        <span class="device-status-dot"></span>
+                        <strong id="device-control-status-text">Chưa rõ</strong>
+                    </div>
+                </div>
+            </div>
+
+            <div id="device-control-functions" class="device-control-functions" aria-live="polite"></div>
+
+            <button id="add-function-trigger-btn" type="button" class="device-add-function-btn">
+                Thêm chức năng
+            </button>
         </section>
 
     </main>
@@ -446,7 +489,10 @@
     <script>
         window.__SMART_HOME_BOOTSTRAP__ = {
             authenticated: {{ "true" if initial_authenticated else "false" }},
-            jetson_id: {{ initial_jetson_id | tojson }}
+            jetson_id: {{ initial_jetson_id | tojson }},
+            page: {{ (initial_page or "index") | tojson }},
+            device_id: {{ initial_device_id | tojson }},
+            device_name: {{ initial_device_name | tojson }}
         };
     </script>
     <script type="module" src="/static/app.js"></script>

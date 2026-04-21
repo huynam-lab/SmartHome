@@ -502,6 +502,9 @@ export function addChatMessage(role, text, ts = Date.now(), options = {}) {
     if (!normalizedText || !app.dom.chatMessagesEl) {
         return false;
     }
+    if (safeRole === "system" && !options.isError && !options.forceVisible) {
+        return false;
+    }
     if (!shouldKeepChatEntry({ role: safeRole, isError: options.isError })) {
         return false;
     }
@@ -547,6 +550,9 @@ export function upsertChatMessage(role, text, ts = Date.now(), options = {}) {
     const messageId = String(options.messageId || "").trim();
 
     if (!normalizedText || !app.dom.chatMessagesEl) {
+        return false;
+    }
+    if (safeRole === "system" && !options.isError && !options.forceVisible) {
         return false;
     }
     if (!shouldKeepChatEntry({ role: safeRole, isError: options.isError })) {

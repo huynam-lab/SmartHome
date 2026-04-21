@@ -18,6 +18,7 @@ import {
     submitAddFunctionButton,
     submitAddDevice,
     submitDeviceSchedule,
+    syncRouteFromLocation,
     syncIrDeviceSelection,
     updateIrSemanticForm,
     updateIrSignalTypeForm,
@@ -120,9 +121,14 @@ function bindEvents() {
             positionSettingsMenu();
         }
     }, { passive: true });
+
+    window.addEventListener("popstate", () => {
+        syncRouteFromLocation();
+    });
 }
 
 export function startApp() {
+    syncRouteFromLocation({ render: false });
     setAuthMode("login");
     updateIrSemanticForm();
     updateIrSignalTypeForm();

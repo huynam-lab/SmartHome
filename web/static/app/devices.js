@@ -50,6 +50,48 @@ function buildDeviceControlHref(device) {
     return `/device-control?device_id=${encodeURIComponent(device.id)}&device_name=${encodeURIComponent(device.name || "")}`;
 }
 
+function navigateTo(url, { replace = false } = {}) {
+    const method = replace ? "replaceState" : "pushState";
+    window.history[method]({}, "", url);
+}
+
+function setDeviceControlChrome(isActive) {
+    document.body.dataset.page = isActive ? "device-control" : "index";
+    document.body.classList.toggle("device-control-screen", isActive);
+    app.dom.deviceCenterPageEl?.classList.toggle("is-hidden", isActive);
+    app.dom.deviceCenterPageEl?.setAttribute("aria-hidden", String(isActive));
+    app.dom.deviceControlPageEl?.classList.toggle("is-hidden", !isActive);
+    app.dom.deviceControlPageEl?.setAttribute("aria-hidden", String(!isActive));
+}
+
+export function syncRouteFromLocation({ render = true } = {}) {
+    const isControlView = isDeviceControlRoute();
+    const requestedDeviceId = getRequestedDeviceIdFromUrl();
+    const requestedDeviceName = getRequestedDeviceNameFromUrl();
+
+    app.state.currentView = isControlView ? "device-control" : "device-center";
+    setDeviceControlChrome(isControlView);
+
+    if (!isControlView) {
+        app.state.currentDeviceControlId = null;
+        return;
+    }
+
+    if (requestedDeviceId) {
+        app.state.currentDeviceControlId = requestedDeviceId;
+    } else if (!app.state.currentDeviceControlId) {
+        app.state.currentDeviceControlId = app.state.deviceInventory[0]?.id || null;
+    }
+
+    if (requestedDeviceName && !app.state.currentDeviceControlId && app.dom.deviceControlTitleEl) {
+        app.dom.deviceControlTitleEl.textContent = requestedDeviceName;
+    }
+
+    if (render) {
+        renderDeviceControlPage();
+    }
+}
+
 function readCachedDeviceInventory() {
     try {
         const raw = window.sessionStorage.getItem(DEVICE_INVENTORY_CACHE_KEY);
@@ -1224,31 +1266,22 @@ export function openDeviceControlPage(deviceId) {
         return;
     }
     cacheOpenedDevice(device);
-    if (!isDeviceControlRoute()) {
-        window.location.assign(buildDeviceControlHref(device));
-        return;
-    }
-    if (!app.dom.deviceControlPageEl) {
-        return;
-    }
     closeDeviceMenus();
-    app.state.currentView = "device-control";
     app.state.currentDeviceControlId = device.id;
-    app.dom.deviceControlPageEl.classList.remove("is-hidden");
-    app.dom.deviceControlPageEl.setAttribute("aria-hidden", "false");
-    renderDeviceControlPage();
+    navigateTo(buildDeviceControlHref(device));
+    syncRouteFromLocation();
     window.setTimeout(() => app.dom.deviceControlBackBtnEl?.focus(), 0);
 }
 
 export function closeDeviceControlPage({ navigate = true } = {}) {
-    if (isDeviceControlRoute() && navigate) {
-        window.location.assign("/index");
+    if (navigate && isDeviceControlRoute()) {
+        navigateTo("/index");
+        syncRouteFromLocation({ render: false });
         return;
     }
     app.state.currentView = "device-center";
     app.state.currentDeviceControlId = null;
-    app.dom.deviceControlPageEl?.classList.add("is-hidden");
-    app.dom.deviceControlPageEl?.setAttribute("aria-hidden", "true");
+    setDeviceControlChrome(false);
 }
 
 export function openAddFunctionButtonModal() {
@@ -1328,17 +1361,7 @@ export function closeDeviceScheduleModal() {
 
 export function renderDevices(devices) {
     app.state.deviceStateMap.clear();
-    if (!app.dom.deviceListEl) {
-        devices.forEach((device) => app.state.deviceStateMap.set(device.id, device));
-        const requestedDeviceId = getRequestedDeviceIdFromUrl();
-        const requestedDeviceName = getRequestedDeviceNameFromUrl();
-        if (!requestedDeviceId && requestedDeviceName && app.dom.deviceControlTitleEl) {
-            app.dom.deviceControlTitleEl.textContent = requestedDeviceName;
-        }
-        app.state.currentDeviceControlId = requestedDeviceId || app.state.currentDeviceControlId || devices[0]?.id || null;
-        renderDeviceControlPage();
-        return;
-    }
+    syncRouteFromLocation({ render: false });
     if (!devices.length) {
         app.dom.deviceListEl.innerHTML = '<p class="empty-state">Chưa có thiết bị nào trong hệ thống.</p>';
         setSummaryText("0 thiết bị");
@@ -1367,6 +1390,7 @@ export function hydrateCachedDevices() {
         const cachedOpenedDevice = readCachedOpenedDevice();
         if (cachedOpenedDevice) {
             app.state.currentDeviceControlId = getRequestedDeviceIdFromUrl() || cachedOpenedDevice.id || null;
+            syncRouteFromLocation({ render: false });
             renderDeviceControlSkeleton(normalizeDevice(cachedOpenedDevice));
             return true;
         }
@@ -1389,7 +1413,15 @@ function bindDeviceActions() {
             }
         };
         link.addEventListener("pointerdown", cacheFromLink, { passive: true });
-        link.addEventListener("click", cacheFromLink, { passive: true });
+        link.addEventListener("click", (event) => {
+            event.preventDefault();
+            cacheFromLink();
+            const card = link.closest("[data-device-id]");
+            const deviceId = String(card?.dataset.deviceId || "");
+            if (deviceId) {
+                openDeviceControlPage(deviceId);
+            }
+        });
     });
 
     document.querySelectorAll("[data-device-menu-btn]").forEach((button) => {

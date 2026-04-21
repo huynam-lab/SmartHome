@@ -1,4 +1,5 @@
 const dom = {
+    deviceCenterPageEl: document.getElementById("device-center-page"),
     deviceListEl: document.getElementById("device-list"),
     deviceControlPageEl: document.getElementById("device-control-page"),
     deviceControlBackBtnEl: document.getElementById("device-control-back-btn"),
