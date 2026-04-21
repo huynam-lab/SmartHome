@@ -175,11 +175,11 @@
             "duration_seconds": 600
           }
         },
-        "tat_sau_30_phut": {
+        "hen_tat_30_phut": {
           "type": "ir",
-          "file": "ir_6da495ae2abbb740.bin",
+          "file": "ir_23b95a2f8fd2279c.bin",
           "phrases": [
-            "Tắt đèn sân sau 30 phút"
+            "Hẹn tắt sau 30 phút"
           ],
           "semantic": {
             "domain": "timer",

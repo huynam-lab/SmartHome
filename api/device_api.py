@@ -37,7 +37,7 @@ def _derive_power_state(action: str, action_config: dict | None = None) -> str:
         return "on"
     if normalized_action in {"off", "turn_off", "power.off", "tat"}:
         return "off"
-    return "unknown"
+    return "on"
 
 
 def _format_semantic_choice(value: str) -> str:

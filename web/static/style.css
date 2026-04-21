@@ -1600,8 +1600,9 @@ h3 {
     touch-action: manipulation;
     user-select: none;
     -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
     transform: none;
-    transition: background 0.2s ease, opacity 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
+    transition: none;
 }
 
 .device-function-item.is-delete-armed .device-function-btn {
@@ -1834,7 +1835,7 @@ h3 {
 }
 
 .action-btn.btn-off {
-    background: linear-gradient(135deg, #d9dde6, #b8bfcd);
+    background: linear-gradient(135deg, #7facd6, #33539e);
     color: #ffffff;
 }
 
@@ -1856,8 +1857,8 @@ h3 {
 }
 
 .action-btn.is-active {
-    opacity: 0.48;
-    filter: grayscale(0.2) saturate(0.55) brightness(0.82);
+    opacity: 0.52;
+    filter: saturate(0.7) brightness(0.96);
     box-shadow: none;
     transform: none;
 }
@@ -1875,13 +1876,13 @@ h3 {
 }
 
 .action-btn.btn-default.is-active {
-    background: linear-gradient(135deg, #bfb8da, #7facd6);
+    background: linear-gradient(135deg, #dfe3ec, #c8dff4);
     color: var(--text-main);
 }
 
 .action-btn.is-inactive {
-    box-shadow: 0 10px 20px rgba(85, 96, 122, 0.12);
-    filter: saturate(1.03) brightness(1.01);
+    box-shadow: 0 12px 24px rgba(51, 83, 158, 0.14);
+    filter: saturate(1.08) brightness(1);
     opacity: 1;
     transform: none;
 }
@@ -1889,12 +1890,24 @@ h3 {
 .device-control-page .action-btn:hover:not(:disabled),
 .device-control-page .primary-btn:hover:not(:disabled),
 .device-control-page .icon-btn:hover:not(:disabled),
-.device-control-page .action-btn:active,
 .device-control-page .primary-btn:active,
 .device-control-page .icon-btn:active,
 .device-control-page .device-add-function-btn:active,
 .device-control-page .device-add-function-btn:hover {
     transform: none;
+}
+
+.device-control-page .action-btn:active {
+    transform: none;
+    opacity: 1;
+    filter: none;
+}
+
+.device-control-page .action-btn,
+.device-control-page .device-function-btn {
+    transition: none !important;
+    animation: none !important;
+    will-change: auto;
 }
 
 .action-btn:disabled,

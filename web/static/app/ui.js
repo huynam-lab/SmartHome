@@ -454,7 +454,19 @@ export function hydrateChatHistory() {
         return false;
     }
 
-    const history = readPersistedChatHistory();
+    const seenKeys = new Set();
+    const history = readPersistedChatHistory().filter((entry) => {
+        const dedupeKey = buildDedupeKey(
+            app.constants.CHAT_ROLE_META[entry?.role] ? entry.role : "system",
+            String(entry?.text || "").trim(),
+            entry?.messageId || entry?.requestId || entry?.fingerprint || "local"
+        );
+        if (seenKeys.has(dedupeKey)) {
+            return false;
+        }
+        seenKeys.add(dedupeKey);
+        return true;
+    });
     if (!history.length) {
         return false;
     }

@@ -277,6 +277,14 @@ function getScheduleActionOptions(device) {
     return options;
 }
 
+function getCurrentScheduleTimeParts() {
+    const now = new Date();
+    return {
+        hour: String(now.getHours()),
+        minute: String(now.getMinutes()),
+    };
+}
+
 function renderDeviceScheduleActionOptions(device, preferredAction = "") {
     if (!app.dom.deviceScheduleActionInputEl) {
         return false;
@@ -293,9 +301,9 @@ function renderDeviceScheduleActionOptions(device, preferredAction = "") {
         return false;
     }
 
-    app.dom.deviceScheduleActionInputEl.innerHTML = options.map((option) => `
+    app.dom.deviceScheduleActionInputEl.innerHTML = ['<option value="">Chế độ</option>', ...options.map((option) => `
         <option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>
-    `).join("");
+    `)].join("");
 
     const preferredKey = normalizeActionKey(preferredAction);
     const selectedOption = options.find((option) => {
@@ -305,12 +313,12 @@ function renderDeviceScheduleActionOptions(device, preferredAction = "") {
         }
         const preferredCandidates = expandActionKeyCandidates(preferredKey);
         return preferredCandidates.some((candidate) => optionCandidates.includes(candidate));
-    }) || options[0];
+    }) || null;
 
     app.dom.deviceScheduleActionInputEl.disabled = Boolean(app.state.isScheduleSubmitting);
-    app.dom.deviceScheduleActionInputEl.value = selectedOption.value;
+    app.dom.deviceScheduleActionInputEl.value = selectedOption?.value || "";
     if (app.dom.deviceScheduleSubmitBtnEl) {
-        app.dom.deviceScheduleSubmitBtnEl.disabled = Boolean(app.state.isScheduleSubmitting);
+        app.dom.deviceScheduleSubmitBtnEl.disabled = Boolean(app.state.isScheduleSubmitting) || !selectedOption;
     }
     return true;
 }
@@ -1317,16 +1325,17 @@ export async function openDeviceScheduleModal() {
     if (app.dom.deviceScheduleDeviceNameEl) {
         app.dom.deviceScheduleDeviceNameEl.textContent = device.name || device.id || "Thiết bị hiện tại";
     }
+    const currentTimeParts = getCurrentScheduleTimeParts();
     if (app.dom.deviceScheduleHourInputEl) {
-        app.dom.deviceScheduleHourInputEl.value = "";
+        app.dom.deviceScheduleHourInputEl.value = currentTimeParts.hour;
     }
     if (app.dom.deviceScheduleMinuteInputEl) {
-        app.dom.deviceScheduleMinuteInputEl.value = "";
+        app.dom.deviceScheduleMinuteInputEl.value = currentTimeParts.minute;
     }
     if (app.dom.deviceScheduleRepeatInputEl) {
         app.dom.deviceScheduleRepeatInputEl.checked = false;
     }
-    const hasSupportedScheduleAction = renderDeviceScheduleActionOptions(device, "power.on");
+    const hasSupportedScheduleAction = renderDeviceScheduleActionOptions(device);
     if (!hasSupportedScheduleAction) {
         setDeviceScheduleFeedback("Thiết bị này chưa có action bật/tắt để hẹn giờ.");
     }
@@ -1593,7 +1602,8 @@ export async function submitDeviceSchedule(event) {
         return;
     }
     if (!action) {
-        setDeviceScheduleFeedback("Thiết bị này chưa có action bật/tắt hợp lệ để hẹn giờ.");
+        setDeviceScheduleFeedback("Vui lòng chọn chế độ Bật hoặc Tắt trước khi hẹn giờ.");
+        app.dom.deviceScheduleActionInputEl?.focus();
         return;
     }
     if ((app.state.deviceSchedules || []).length >= 2) {
@@ -1655,9 +1665,8 @@ function updateDeviceActionButtons(deviceId, device, processing = false) {
                 ? ["off", "tat", "turn_off", "power.off"].includes(action)
                 : false;
         const isActionActive = (currentAction && String(action || "").trim().toLowerCase() === currentAction) || (isTogglePair && isCurrentStateAction);
-        const isUnknownState = currentState !== "on" && currentState !== "off";
         button.classList.toggle("is-active", Boolean(isActionActive));
-        button.classList.toggle("is-inactive", Boolean(!isActionActive && (currentAction || !isUnknownState)));
+        button.classList.remove("is-inactive");
         button.setAttribute("aria-pressed", isTogglePair && isCurrentStateAction ? "true" : "false");
         button.disabled = processing;
     });
@@ -1681,9 +1690,8 @@ function updateDeviceActionButtons(deviceId, device, processing = false) {
                     : false;
             const normalizedCommandKey = String(commandKey || "").trim().toLowerCase();
             const isActionActive = [normalizedCommandKey, backendAction].filter(Boolean).includes(currentAction) || (isTogglePair && isCurrentStateAction);
-            const isUnknownState = currentState !== "on" && currentState !== "off";
             button.classList.toggle("is-active", Boolean(isActionActive));
-            button.classList.toggle("is-inactive", Boolean(!isActionActive && (currentAction || !isUnknownState)));
+            button.classList.remove("is-inactive");
             button.disabled = processing;
         });
     }
@@ -1727,11 +1735,19 @@ export function mergeDeviceState(deviceId, state) {
     updateDeviceState(deviceId, nextState, false);
 }
 
+function deriveOptimisticPowerState(action) {
+    const normalizedAction = String(action || "").trim().toLowerCase();
+    if (["off", "tat", "turn_off", "power.off"].includes(normalizedAction)) {
+        return "off";
+    }
+    return "on";
+}
+
 function applyOptimisticDeviceState(deviceId, action) {
     const current = app.state.deviceStateMap.get(deviceId) || {};
     const optimisticState = {
         ...current,
-        state: action,
+        state: deriveOptimisticPowerState(action),
         active_action: action,
         state_verified: false,
         last_command: action,
@@ -1741,7 +1757,7 @@ function applyOptimisticDeviceState(deviceId, action) {
     };
     app.state.deviceStateMap.set(deviceId, optimisticState);
     updateDeviceRecord(deviceId, (device) => ({ ...device, ...optimisticState }));
-    updateDeviceState(deviceId, optimisticState, true);
+    updateDeviceState(deviceId, optimisticState, false);
 }
 
 async function handleDeleteDevice(deviceId) {
@@ -1805,17 +1821,6 @@ export async function sendDeviceCommand(deviceId, action, buttonEl, options = {}
     const device = getDeviceById(deviceId);
     const silentChat = options.silentChat !== false;
 
-    functionButtons.forEach((button) => {
-        button.disabled = true;
-        button.classList.add("is-loading");
-    });
-    functionDeleteButtons.forEach((deleteButton) => {
-        deleteButton.disabled = true;
-    });
-    if (buttonEl) {
-        buttonEl.classList.add("is-loading");
-    }
-
     if (!silentChat && commandKey && !["turn_on", "turn_off", "on", "off", "power.on", "power.off"].includes(commandKey)) {
         addChatMessage("system", `Đang gửi function "${commandKey}" xuống backend. Nếu Broadlink chưa có lệnh thật, backend có thể trả về cảnh báo.`, Date.now(), {
             fingerprint: `device-function-warning-${deviceId}-${commandKey}`,
@@ -1840,6 +1845,7 @@ export async function sendDeviceCommand(deviceId, action, buttonEl, options = {}
                 last_command_at: result.last_command_at,
                 last_command_status: result.last_command_status,
                 last_command_message: result.last_command_message,
+                active_action: result.active_action,
             });
         }
 
@@ -1862,10 +1868,9 @@ export async function sendDeviceCommand(deviceId, action, buttonEl, options = {}
         }
         setChatStatus("Có lỗi khi điều khiển thiết bị", "error");
     } finally {
-        functionButtons.forEach((button) => button.classList.remove("is-loading"));
-        functionDeleteButtons.forEach((deleteButton) => {
-            deleteButton.disabled = false;
-        });
+        void functionButtons;
+        void functionDeleteButtons;
+        void buttonEl;
         updateDeviceActionButtons(deviceId, app.state.deviceStateMap.get(deviceId) || previousState, false);
     }
 }

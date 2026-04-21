@@ -101,7 +101,6 @@ export function initializeApp() {
 
 export function prepareLockedShell() {
     showChatEmptyState();
-    ensureWelcomeMessage();
     setChatStatus("Vui lòng đăng nhập để sử dụng điều khiển thiết bị", "error");
     setVoiceUiState({
         listening: false,
