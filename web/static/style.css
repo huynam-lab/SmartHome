@@ -1300,6 +1300,54 @@ h3 {
     display: none;
 }
 
+.camera-entry-panel {
+    margin-top: 18px;
+}
+
+.camera-hub-btn {
+    width: 100%;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 16px;
+    padding: 22px 20px;
+    border: 1px solid rgba(51, 83, 158, 0.08);
+    border-radius: 24px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(241, 239, 248, 0.98));
+    color: var(--text-main);
+    box-shadow: 0 14px 32px rgba(51, 83, 158, 0.08);
+    text-align: left;
+}
+
+.camera-hub-icon {
+    display: grid;
+    place-items: center;
+    width: 56px;
+    height: 56px;
+    border-radius: 18px;
+    background: linear-gradient(180deg, rgba(127, 172, 214, 0.18), rgba(255, 255, 255, 0.84));
+    font-size: 1.4rem;
+}
+
+.camera-hub-copy {
+    display: grid;
+    gap: 4px;
+}
+
+.camera-hub-copy strong {
+    font-size: 1.2rem;
+}
+
+.camera-hub-copy small {
+    color: var(--text-soft);
+    line-height: 1.5;
+}
+
+.camera-hub-arrow {
+    color: var(--text-soft);
+    font-size: 1.35rem;
+}
+
 .device-card {
     position: relative;
     display: block;
@@ -1472,6 +1520,12 @@ h3 {
     background: rgba(232, 183, 212, 0.16);
 }
 
+.camera-summary-banner .device-status-dot {
+    background: var(--accent-blue);
+    box-shadow: none;
+    animation: none;
+}
+
 .device-status-text {
     align-items: center;
     gap: 8px;
@@ -1515,6 +1569,11 @@ h3 {
 }
 
 .device-control-screen .app-shell {
+    max-width: 880px;
+    padding-top: 18px;
+}
+
+.camera-screen .app-shell {
     max-width: 880px;
     padding-top: 18px;
 }
@@ -1592,6 +1651,135 @@ h3 {
 
 .device-function-item {
     display: block;
+}
+
+.camera-list {
+    grid-template-columns: 1fr;
+}
+
+.camera-card {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 14px;
+    align-items: center;
+    padding: 18px;
+    border-radius: 22px;
+    border: 1px solid rgba(51, 83, 158, 0.08);
+    background: rgba(255, 255, 255, 0.74);
+}
+
+.camera-card-main {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: center;
+    gap: 14px;
+    color: inherit;
+    text-decoration: none;
+}
+
+.camera-card-icon {
+    display: grid;
+    place-items: center;
+    width: 52px;
+    height: 52px;
+    border-radius: 18px;
+    background: linear-gradient(180deg, rgba(127, 172, 214, 0.16), rgba(255, 255, 255, 0.86));
+    font-size: 1.3rem;
+}
+
+.camera-card-copy {
+    display: grid;
+    gap: 4px;
+}
+
+.camera-card-copy small {
+    color: var(--text-soft);
+}
+
+.camera-card-tools {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
+.camera-card-action {
+    min-height: 40px;
+    padding: 10px 14px;
+    border: 1px solid rgba(51, 83, 158, 0.12);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.82);
+    color: var(--text-main);
+}
+
+.camera-card-action.danger {
+    border-color: rgba(211, 85, 120, 0.28);
+    background: rgba(232, 183, 212, 0.16);
+}
+
+.camera-preview-shell {
+    min-height: 320px;
+    border-radius: 24px;
+    overflow: hidden;
+    border: 1px solid rgba(51, 83, 158, 0.08);
+    background:
+        radial-gradient(circle at top left, rgba(127, 172, 214, 0.18), transparent 34%),
+        linear-gradient(180deg, rgba(245, 248, 252, 0.96), rgba(233, 237, 246, 0.94));
+}
+
+.camera-preview-media,
+.camera-preview-frame {
+    display: block;
+    width: 100%;
+    height: 100%;
+    min-height: 320px;
+    border: 0;
+    object-fit: cover;
+    background: #dfe7f5;
+}
+
+.camera-preview-empty {
+    min-height: 320px;
+    display: grid;
+    place-items: center;
+    gap: 10px;
+    padding: 24px;
+    text-align: center;
+    color: var(--text-soft);
+}
+
+.camera-preview-empty strong {
+    color: var(--text-main);
+    font-size: 1.1rem;
+}
+
+.camera-meta-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.camera-meta-card,
+.camera-detail-card {
+    padding: 16px 18px;
+    border-radius: 20px;
+    background: rgba(255, 255, 255, 0.72);
+    border: 1px solid rgba(51, 83, 158, 0.08);
+}
+
+.camera-detail-card {
+    display: grid;
+    gap: 10px;
+}
+
+.camera-stream-url {
+    display: block;
+    width: 100%;
+    padding: 12px 14px;
+    border-radius: 14px;
+    background: rgba(240, 244, 252, 0.92);
+    color: var(--text-main);
+    overflow-wrap: anywhere;
 }
 
 .device-function-tools {
@@ -2097,7 +2285,8 @@ body.auth-locked {
     font-weight: 700;
 }
 
-.auth-field input {
+.auth-field input,
+.auth-field select {
     width: 100%;
     min-height: 52px;
     padding: 14px 16px;
@@ -2107,6 +2296,9 @@ body.auth-locked {
     color: var(--text-main);
     outline: none;
     font: inherit;
+    box-shadow: none;
+    -webkit-appearance: none;
+    appearance: none;
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
@@ -2172,9 +2364,10 @@ body.auth-locked {
     transform: rotate(-35deg);
 }
 
-.auth-field input:focus {
-    border-color: rgba(51, 83, 158, 0.34);
-    box-shadow: 0 0 0 4px rgba(127, 172, 214, 0.16);
+.auth-field input:focus,
+.auth-field select:focus {
+    border-color: rgba(51, 83, 158, 0.12);
+    box-shadow: none;
 }
 
 .auth-submit-btn {
@@ -2238,8 +2431,12 @@ body.auth-locked {
     inset: 0;
     z-index: 35;
     display: none;
-    place-items: center;
+    justify-items: center;
+    align-items: start;
     padding: 20px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
 }
 
 .password-modal.is-visible {
@@ -2258,8 +2455,12 @@ body.auth-locked {
     position: relative;
     z-index: 1;
     width: min(100%, 460px);
+    max-height: calc(100dvh - 40px);
     padding: 26px;
     border-radius: 26px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
     background:
         radial-gradient(circle at top right, rgba(127, 172, 214, 0.22), transparent 34%),
         linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(241, 236, 249, 0.98));
@@ -2499,6 +2700,19 @@ body.auth-locked {
         padding: 16px;
     }
 
+    .camera-hub-btn,
+    .camera-card {
+        padding: 16px;
+    }
+
+    .camera-card {
+        grid-template-columns: 1fr;
+    }
+
+    .camera-card-tools {
+        justify-content: flex-start;
+    }
+
     .device-card-main {
         min-height: 50px;
     }
@@ -2531,6 +2745,10 @@ body.auth-locked {
     }
 
     .device-info-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .camera-meta-grid {
         grid-template-columns: 1fr;
     }
 
@@ -2625,6 +2843,7 @@ body.auth-locked {
     }
 
     .password-modal-card {
+        max-height: calc(100dvh - 28px);
         padding: 22px 18px;
         border-radius: 22px;
     }

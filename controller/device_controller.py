@@ -1,4 +1,5 @@
 from core.event_bus import log_event
+from core.device_command_dispatcher import dispatch_device_command
 from controller.device_registry import build_alias_index, get_registry, normalize_device_id
 from devices.device_controllers import get_device_controller
 
@@ -23,6 +24,21 @@ def list_available_packets():
 
 def get_packet_audit_report():
     return get_registry().build_packet_audit_report()
+
+
+def _build_controller_queue_key(device: dict, packet_info: dict) -> str:
+    action_type = str(packet_info.get("action_type") or device.get("control_type") or "").strip().lower()
+    if action_type in {"ir", "rf"}:
+        return "broadlink:default"
+    if action_type in {"relay", "gpio"}:
+        return f"gpio:{str(device.get('id') or '').strip().lower()}"
+    if action_type == "wifi":
+        return f"wifi:{str(device.get('id') or '').strip().lower()}"
+    return f"device:{str(device.get('id') or '').strip().lower()}"
+
+
+def _build_command_dedupe_key(device_id: str, action: str) -> str:
+    return f"{str(device_id or '').strip().lower()}:{str(action or '').strip().lower()}"
 
 
 def execute_command(command: dict):
@@ -118,7 +134,11 @@ def execute_command(command: dict):
         log_event(source="device-control", level="error", message=result["message"], payload=result)
         return result
 
-    execution_result = controller.execute(device=device, action=requested_action, packet_info=packet_info)
+    execution_result = dispatch_device_command(
+        controller_key=_build_controller_queue_key(device=device, packet_info=packet_info),
+        dedupe_key=_build_command_dedupe_key(normalized_device, requested_action),
+        execute_fn=lambda: controller.execute(device=device, action=requested_action, packet_info=packet_info),
+    )
     result = {
         "success": bool(execution_result.get("success")),
         "message": execution_result.get("message") or "Không có message trả về",

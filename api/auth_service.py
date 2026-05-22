@@ -6,6 +6,8 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from config import AUTH_COLLECTION_NAME, MONGO_DB_NAME, MONGO_URI
 
+MAX_ACCOUNTS_PER_JETSON = 2
+
 
 class AuthConfigurationError(RuntimeError):
     pass
@@ -194,6 +196,14 @@ def register_user_account(email: str, password: str, jetson_id: str):
                 "ok": False,
                 "status": 409,
                 "message": "Email nay da ton tai. Vui long dung email khac.",
+            }
+
+        jetson_account_count = collection.count_documents({"jetson_id": normalized_jetson_id})
+        if jetson_account_count >= MAX_ACCOUNTS_PER_JETSON:
+            return {
+                "ok": False,
+                "status": 409,
+                "message": f"Đạt giới hạn tài khoản mã {normalized_jetson_id}.",
             }
 
         collection.insert_one({

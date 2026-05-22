@@ -3,8 +3,15 @@ import { bootstrapAuthentication, handleLogout, submitLogin, submitPasswordChang
 import { startMic, stopMic } from "./chat.js";
 import { stopMicrophoneTracks } from "../js/mic-permission.js";
 import {
+    closeAddCameraModal,
     closeAddDeviceModal,
     closeAddFunctionButtonModal,
+    closeCameraCenterPage,
+    closeCameraControlPage,
+    openCameraCenterPage,
+    openCameraControlPageFromCurrentRoute,
+    openAddCameraModal,
+    openCurrentCameraEditModal,
     closeDeviceControlPage,
     closeDeviceScheduleModal,
     closeIrLearnModal as closeIrLearnForm,
@@ -15,6 +22,7 @@ import {
     openDeviceScheduleModal,
     openIrLearnModal,
     setDeviceScheduleAction,
+    submitAddCamera,
     submitAddFunctionButton,
     submitAddDevice,
     submitDeviceSchedule,
@@ -37,6 +45,15 @@ import {
 
 function bindEvents() {
     app.dom.reloadBtnEl?.addEventListener("click", loadDevices);
+    app.dom.cameraCenterOpenBtnEl?.addEventListener("click", openCameraCenterPage);
+    app.dom.cameraCenterBackBtnEl?.addEventListener("click", closeCameraCenterPage);
+    app.dom.cameraAddTriggerBtnEl?.addEventListener("click", openAddCameraModal);
+    app.dom.cameraControlBackBtnEl?.addEventListener("click", closeCameraControlPage);
+    app.dom.cameraControlEditBtnEl?.addEventListener("click", openCurrentCameraEditModal);
+    app.dom.addCameraCloseBtnEl?.addEventListener("click", closeAddCameraModal);
+    app.dom.addCameraBackdropEl?.addEventListener("click", closeAddCameraModal);
+    app.dom.addCameraCancelBtnEl?.addEventListener("click", closeAddCameraModal);
+    app.dom.addCameraFormEl?.addEventListener("submit", submitAddCamera);
     app.dom.chatFormEl?.addEventListener("submit", (event) => event.preventDefault());
     app.dom.micBtnEl?.addEventListener("click", () => {
         startMic().catch((error) => {
@@ -99,6 +116,7 @@ function bindEvents() {
             closeDeviceMenus();
             closePasswordModal();
             closeAddDeviceModal();
+            closeAddCameraModal();
             closeAddFunctionButtonModal();
             closeDeviceScheduleModal();
             closeIrLearnForm();
@@ -124,11 +142,13 @@ function bindEvents() {
 
     window.addEventListener("popstate", () => {
         syncRouteFromLocation();
+        openCameraControlPageFromCurrentRoute({ renderOnly: true });
     });
 }
 
 export function startApp() {
     syncRouteFromLocation({ render: false });
+    openCameraControlPageFromCurrentRoute({ renderOnly: true });
     setAuthMode("login");
     updateIrSemanticForm();
     updateIrSignalTypeForm();
