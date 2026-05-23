@@ -62,7 +62,13 @@ wait_for_app() {
   local i
   for i in $(seq 1 60); do
     if ! kill -0 "$APP_PID" >/dev/null 2>&1; then
-      printf 'Web app process exited before opening port %s.\n' "$APP_PORT" >&2
+      app_exit_code=0
+      if wait "$APP_PID"; then
+        app_exit_code=0
+      else
+        app_exit_code=$?
+      fi
+      printf 'Web app process exited before opening port %s (exit code: %s).\n' "$APP_PORT" "$app_exit_code" >&2
       return 1
     fi
 
@@ -186,4 +192,10 @@ else
   exit 1
 fi
 
-wait "$APP_PID"
+if wait "$APP_PID"; then
+  exit 0
+fi
+
+app_exit_code=$?
+printf 'Web app process exited after startup (exit code: %s).\n' "$app_exit_code" >&2
+exit "$app_exit_code"

@@ -1075,12 +1075,27 @@ h3 {
 .ir-learn-field textarea {
     width: 100%;
     min-height: 48px;
-    padding: 13px 14px;
+    padding: 13px 44px 13px 14px;
     border-radius: 14px;
     border: 1px solid rgba(51, 83, 158, 0.12);
     background: var(--input-bg);
     color: var(--text-main);
     outline: none;
+}
+
+.ir-learn-field select {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none'%3E%3Cpath d='M5 7.5L10 12.5L15 7.5' stroke='%2361769f' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    background-size: 18px 18px;
+    -webkit-appearance: none;
+    appearance: none;
+}
+
+.ir-learn-field input,
+.ir-learn-field textarea {
+    background-image: none;
+    padding-right: 14px;
 }
 
 .ir-learn-readonly {
@@ -1301,18 +1316,24 @@ h3 {
 }
 
 .camera-entry-panel {
-    margin-top: 18px;
+    margin-top: 30px;
+    display: grid;
+    gap: 18px;
+    padding: 22px;
+    border-radius: 32px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(244, 240, 250, 0.94));
 }
 
 .camera-hub-btn {
     width: 100%;
     display: grid;
-    grid-template-columns: auto 1fr auto;
-    align-items: center;
-    gap: 16px;
-    padding: 22px 20px;
+    grid-template-columns: 72px minmax(0, 1fr) 36px;
+    align-items: start;
+    gap: 18px 20px;
+    min-height: 144px;
+    padding: 24px 28px;
     border: 1px solid rgba(51, 83, 158, 0.08);
-    border-radius: 24px;
+    border-radius: 28px;
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(241, 239, 248, 0.98));
     color: var(--text-main);
     box-shadow: 0 14px 32px rgba(51, 83, 158, 0.08);
@@ -1322,30 +1343,41 @@ h3 {
 .camera-hub-icon {
     display: grid;
     place-items: center;
-    width: 56px;
-    height: 56px;
-    border-radius: 18px;
+    width: 72px;
+    height: 72px;
+    border-radius: 22px;
     background: linear-gradient(180deg, rgba(127, 172, 214, 0.18), rgba(255, 255, 255, 0.84));
-    font-size: 1.4rem;
+    font-size: 1.8rem;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
 }
 
 .camera-hub-copy {
     display: grid;
-    gap: 4px;
+    align-content: start;
+    gap: 10px;
+    padding-top: 6px;
+    min-width: 0;
 }
 
 .camera-hub-copy strong {
-    font-size: 1.2rem;
+    font-size: clamp(1.5rem, 3.9vw, 2rem);
+    line-height: 1.12;
 }
 
 .camera-hub-copy small {
     color: var(--text-soft);
+    font-size: 1rem;
     line-height: 1.5;
+    max-width: 24ch;
 }
 
 .camera-hub-arrow {
     color: var(--text-soft);
-    font-size: 1.35rem;
+    font-size: 2rem;
+    line-height: 1;
+    align-self: end;
+    justify-self: end;
+    padding-bottom: 6px;
 }
 
 .device-card {
@@ -2010,6 +2042,179 @@ h3 {
     cursor: pointer;
 }
 
+.scene-keywords-modal-card {
+    width: min(100%, 860px);
+}
+
+.scene-keywords-form {
+    gap: 18px;
+}
+
+.scene-keyword-card {
+    padding: 16px;
+    border-radius: 20px;
+    border: 1px solid rgba(51, 83, 158, 0.08);
+    background: rgba(255, 255, 255, 0.58);
+}
+
+.scene-keywords-list {
+    display: grid;
+    gap: 14px;
+}
+
+.scene-keyword-card {
+    display: grid;
+    gap: 14px;
+}
+
+.scene-keyword-card-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.scene-keyword-card-head h3 {
+    font-size: 1rem;
+    font-weight: 800;
+}
+
+.scene-keyword-action-chip {
+    flex: 0 0 auto;
+    padding: 8px 12px;
+    border-radius: 999px;
+    background: rgba(51, 83, 158, 0.1);
+    color: var(--primary);
+    font-size: 0.85rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.scene-keyword-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.scene-keyword-grid .auth-field:first-child {
+    grid-column: 1 / -1;
+}
+
+.scene-keyword-grid textarea {
+    min-height: 120px;
+    resize: vertical;
+}
+
+.scene-keyword-device-picker {
+    display: grid;
+    gap: 10px;
+}
+
+.scene-keyword-device-picker-shell {
+    display: grid;
+    gap: 12px;
+}
+
+.scene-keyword-device-select {
+    width: 100%;
+    min-height: 48px;
+    padding: 12px 44px 12px 14px;
+    border-radius: 16px;
+    border: 1px solid rgba(51, 83, 158, 0.14);
+    background: rgba(255, 255, 255, 0.9);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none'%3E%3Cpath d='M5 7.5L10 12.5L15 7.5' stroke='%2361769f' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    background-size: 18px 18px;
+    color: var(--text-main);
+    -webkit-appearance: none;
+    appearance: none;
+}
+
+.scene-keyword-device-empty {
+    color: var(--text-soft);
+    line-height: 1.6;
+}
+
+.scene-keyword-selected-wrap {
+    display: grid;
+    gap: 10px;
+}
+
+.scene-keyword-selected-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.scene-keyword-selected-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    padding: 10px 14px;
+    border-radius: 16px;
+    border: 1px solid rgba(51, 83, 158, 0.1);
+    background: rgba(255, 255, 255, 0.72);
+    cursor: pointer;
+    color: var(--text-main);
+}
+
+.scene-keyword-selected-chip-x {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 999px;
+    background: rgba(51, 83, 158, 0.1);
+    font-weight: 800;
+}
+
+.scene-keyword-selected-chip span:first-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.template-preview-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 16px;
+    border-radius: 18px;
+    border: 1px solid rgba(51, 83, 158, 0.08);
+    background: rgba(255, 255, 255, 0.6);
+}
+
+.template-preview-icon {
+    width: 48px;
+    height: 48px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 16px;
+    background: rgba(127, 172, 214, 0.18);
+    font-size: 1.4rem;
+    flex: 0 0 auto;
+}
+
+.template-preview-copy {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+}
+
+.template-preview-copy strong {
+    font-size: 0.98rem;
+}
+
+.template-preview-copy small {
+    color: var(--text-soft);
+    text-transform: capitalize;
+}
+
 .actions {
     flex-wrap: wrap;
     gap: 12px;
@@ -2286,13 +2491,14 @@ body.auth-locked {
 }
 
 .auth-field input,
-.auth-field select {
+.auth-field select,
+.auth-field textarea {
     width: 100%;
     min-height: 52px;
-    padding: 14px 16px;
+    padding: 14px 48px 14px 16px;
     border-radius: 16px;
-    border: 1px solid rgba(51, 83, 158, 0.12);
-    background: var(--input-bg);
+    border: 1px solid rgba(127, 172, 214, 0.34);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(246, 242, 251, 0.96));
     color: var(--text-main);
     outline: none;
     font: inherit;
@@ -2300,6 +2506,24 @@ body.auth-locked {
     -webkit-appearance: none;
     appearance: none;
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.auth-field select {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none'%3E%3Cpath d='M5 7.5L10 12.5L15 7.5' stroke='%2361769f' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 14px center;
+    background-size: 18px 18px;
+}
+
+.auth-field input {
+    background-image: none;
+    padding-right: 16px;
+}
+
+.auth-field textarea {
+    min-height: 120px;
+    padding: 14px 16px;
+    resize: vertical;
 }
 
 .password-input-wrap {
@@ -2365,9 +2589,10 @@ body.auth-locked {
 }
 
 .auth-field input:focus,
-.auth-field select:focus {
-    border-color: rgba(51, 83, 158, 0.12);
-    box-shadow: none;
+.auth-field select:focus,
+.auth-field textarea:focus {
+    border-color: rgba(127, 172, 214, 0.72);
+    box-shadow: 0 0 0 4px rgba(127, 172, 214, 0.14);
 }
 
 .auth-submit-btn {
@@ -2700,9 +2925,47 @@ body.auth-locked {
         padding: 16px;
     }
 
+    .camera-entry-panel {
+        margin-top: 32px;
+        gap: 16px;
+        padding: 18px;
+        border-radius: 28px;
+    }
+
     .camera-hub-btn,
     .camera-card {
-        padding: 16px;
+        padding: 18px;
+    }
+
+    .camera-hub-btn {
+        grid-template-columns: auto 1fr;
+        min-height: 0;
+        gap: 14px 18px;
+        align-items: start;
+        padding: 20px;
+    }
+
+    .camera-hub-icon {
+        width: 60px;
+        height: 60px;
+        border-radius: 18px;
+        font-size: 1.55rem;
+    }
+
+    .camera-hub-copy strong {
+        font-size: 1.85rem;
+    }
+
+    .camera-hub-copy small {
+        max-width: none;
+        font-size: 0.98rem;
+    }
+
+    .camera-hub-arrow {
+        grid-column: 2;
+        justify-self: end;
+        font-size: 1.8rem;
+        padding-bottom: 0;
     }
 
     .camera-card {
@@ -2763,15 +3026,16 @@ body.auth-locked {
     }
 
     .device-schedule-repeat-row,
-    .device-schedule-card {
+    .device-schedule-card,
+    .scene-keyword-card-head {
         align-items: flex-start;
         flex-direction: column;
     }
 
-    .device-schedule-card-content {
+    .device-schedule-card-content,
+    .scene-keyword-grid {
         width: 100%;
-        align-items: flex-start;
-        flex-direction: column;
+        grid-template-columns: 1fr;
     }
 
     .ir-entry-grid {
@@ -2846,6 +3110,49 @@ body.auth-locked {
         max-height: calc(100dvh - 28px);
         padding: 22px 18px;
         border-radius: 22px;
+    }
+}
+
+@media screen and (max-width: 430px) {
+    .camera-entry-panel {
+        margin-top: 34px;
+        gap: 14px;
+        padding: 16px;
+        border-radius: 24px;
+    }
+
+    .camera-hub-btn {
+        grid-template-columns: 56px minmax(0, 1fr);
+        gap: 12px 16px;
+        padding: 18px 16px;
+        border-radius: 22px;
+    }
+
+    .camera-hub-icon {
+        width: 56px;
+        height: 56px;
+        border-radius: 16px;
+        font-size: 1.35rem;
+    }
+
+    .camera-hub-copy {
+        gap: 8px;
+        padding-top: 2px;
+    }
+
+    .camera-hub-copy strong {
+        font-size: 1.35rem;
+    }
+
+    .camera-hub-copy small {
+        font-size: 0.92rem;
+        line-height: 1.4;
+    }
+
+    .camera-hub-arrow {
+        grid-column: 2;
+        justify-self: end;
+        font-size: 1.55rem;
     }
 }
 

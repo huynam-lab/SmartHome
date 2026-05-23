@@ -218,6 +218,26 @@ def run_jetson_command_worker(stop_event: threading.Event, voice_queue: Queue):
         voice_queue.task_done()
 
 
+def run_web_server_forever(stop_event: threading.Event):
+    app = create_app()
+
+    while not stop_event.is_set():
+        try:
+            socketio.run(
+                app,
+                host=WEB_SERVER_HOST,
+                port=5000,
+                debug=False,
+                use_reloader=False,
+                allow_unsafe_werkzeug=True,
+            )
+        except Exception:
+            pass
+
+        if not stop_event.is_set():
+            stop_event.wait(2.0)
+
+
 if __name__ == "__main__":
     stop_event = threading.Event()
     voice_queue = Queue(maxsize=VOICE_QUEUE_SIZE)
@@ -246,21 +266,14 @@ if __name__ == "__main__":
     threading.Thread(target=start_device_schedule_worker, args=(stop_event,), daemon=True).start()
 
     if RUN_WEB_SERVER:
-        app = create_app()
-        try:
-            socketio.run(
-                app,
-                host=WEB_SERVER_HOST,
-                port=5000,
-                debug=False,
-                use_reloader=False,
-                allow_unsafe_werkzeug=True,
-            )
-        finally:
-            stop_event.set()
-    else:
-        try:
-            while not stop_event.is_set():
-                stop_event.wait(max(0.1, MAIN_LOOP_SLEEP_SECONDS))
-        except KeyboardInterrupt:
-            stop_event.set()
+        threading.Thread(
+            target=run_web_server_forever,
+            args=(stop_event,),
+            daemon=True,
+        ).start()
+
+    try:
+        while not stop_event.is_set():
+            stop_event.wait(max(0.1, MAIN_LOOP_SLEEP_SECONDS))
+    except KeyboardInterrupt:
+        stop_event.set()

@@ -29,6 +29,20 @@ function getBootstrapSessionData() {
     };
 }
 
+function clearAuthFields() {
+    app.dom.authFormEl?.reset();
+
+    if (app.dom.authEmailEl) {
+        app.dom.authEmailEl.value = "";
+    }
+    if (app.dom.authPasswordEl) {
+        app.dom.authPasswordEl.value = "";
+    }
+    if (app.dom.authJetsonIdEl) {
+        app.dom.authJetsonIdEl.value = "";
+    }
+}
+
 export function lockControlUi(message = "Vui lòng đăng nhập") {
     app.state.isAuthenticated = false;
     app.state.appInitialized = false;
@@ -48,6 +62,7 @@ export function lockControlUi(message = "Vui lòng đăng nhập") {
     closeDeviceControlPage({ navigate: false });
     closeCameraControlPage({ navigate: false });
     closeIrLearnModal({ force: true });
+    clearAuthFields();
     setAuthFeedback(message, "error");
     updateAuthChip("Đăng nhập để mở quyền điều khiển");
     setControlLockState(true);

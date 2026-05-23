@@ -12,6 +12,7 @@ from config import EXIT_WORDS, WAKE_WORDS
 from core.device_state_store import set_state
 from core.event_bus import log_event
 from services.music_player import get_music_player
+from services.scene_keyword_service import execute_scene_from_text
 from speech.tts import speak_text_async
 
 SAFE_AMBIGUOUS_REPLY = "Anh/chị nói rõ giúp em là bật hay tắt thiết bị ạ."
@@ -181,6 +182,9 @@ def _build_reply_text(result: dict) -> str:
     if result.get("should_exit"):
         return "Dạ"
 
+    if result.get("mode") == "scene-keyword":
+        return result.get("reply_text") or result.get("message") or "Em đã xử lý scene."
+
     if result.get("ok") and device and action:
         natural_reply = build_response(
             user_text=user_text,
@@ -339,6 +343,19 @@ def process_text_command(text: str, source: str = "unknown", context: dict | Non
     music_intent = parse_music_intent(text)
     if music_intent:
         return _handle_music_command(text=text, music_intent=music_intent, source=source)
+
+    scene_result = execute_scene_from_text(text)
+    if scene_result:
+        scene_result["reply_text"] = _build_reply_text(scene_result)
+        speak_text_async(scene_result["reply_text"])
+        _print_conversation_log(text=text, reply_text=scene_result["reply_text"], source=source)
+        log_event(
+            source=source,
+            level="success" if scene_result.get("ok") else "warning",
+            message=scene_result["reply_text"],
+            payload=scene_result,
+        )
+        return scene_result
 
     resolution = resolve_device_command(text)
     resolution_status = str(resolution.get("status") or "").strip().lower()

@@ -11,19 +11,21 @@
     <meta name="apple-mobile-web-app-title" content="Smart Home" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="description" content="Trang điều khiển thiết bị riêng cho Smart Home." />
-    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="manifest" href="/manifest.webmanifest?v=20260522b" />
     <link rel="icon" type="image/png" sizes="192x192" href="/static/pwa/icon-192.png" />
     <link rel="icon" type="image/svg+xml" href="/static/pwa/icon.svg" />
     <link rel="apple-touch-icon" sizes="180x180" href="/static/pwa/apple-touch-icon.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/style.css" />
+    <link rel="stylesheet" href="/static/style.css?v=20260522b" />
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 </head>
 
 <body class="app-preboot device-control-screen {% if not initial_authenticated %}auth-locked{% endif %}"
-    data-page="device-control">
+    data-authenticated="{{ 'true' if initial_authenticated else 'false' }}"
+    data-jetson-id="{{ initial_jetson_id or '' }}" data-page="device-control"
+    data-device-id="{{ initial_device_id or '' }}" data-device-name="{{ initial_device_name or '' }}">
     <div class="app-preboot-loader" aria-hidden="true">
         <div class="app-preboot-spinner"></div>
     </div>
@@ -54,15 +56,17 @@
                 </button>
             </div>
 
-            <form id="auth-form" class="auth-form" autocomplete="on">
+            <form id="auth-form" class="auth-form" autocomplete="off">
                 <label class="auth-field" for="auth-email">
                     <span>Email</span>
-                    <input id="auth-email" name="email" type="email" placeholder="you@gmail.com" required />
+                    <input id="auth-email" name="email" type="email" placeholder="Email" autocomplete="off"
+                        autocapitalize="off" autocorrect="off" spellcheck="false" data-unlock-readonly readonly
+                        required />
                 </label>
                 <label class="auth-field" for="auth-password">
                     <span>Mật khẩu</span>
                     <input id="auth-password" name="password" type="password" placeholder="Nhập mật khẩu của bạn"
-                        required />
+                        autocomplete="new-password" data-unlock-readonly readonly required />
                 </label>
                 <label id="auth-jetson-field" class="auth-field is-hidden" for="auth-jetson-id">
                     <span>Mã Jetson</span>
@@ -262,7 +266,8 @@
                 <label id="ir-semantic-value-field" class="ir-learn-field is-hidden" for="ir-semantic-value-input">
                     <span id="ir-semantic-value-label" class="device-top-label">Giá trị</span>
                     <input id="ir-semantic-value-input" type="text" placeholder="Ví dụ: 24 hoặc cool" />
-                    <small id="ir-semantic-value-hint" class="auth-hint">Nhập giá trị theo loại hành động đã chọn.</small>
+                    <small id="ir-semantic-value-hint" class="auth-hint">Nhập giá trị theo loại hành động đã
+                        chọn.</small>
                 </label>
                 <label class="ir-learn-field" for="ir-action-phrases-input">
                     <span class="device-top-label">Câu lệnh mẫu</span>
@@ -278,15 +283,8 @@
         </section>
     </div>
 
-    <script>
-        window.__SMART_HOME_BOOTSTRAP__ = {
-            authenticated: {{ "true" if initial_authenticated else "false" }},
-            jetson_id: {{ initial_jetson_id | tojson }},
-            device_id: {{ initial_device_id | tojson }},
-            device_name: {{ initial_device_name | tojson }}
-        };
-    </script>
-    <script type="module" src="/static/app.js"></script>
+    <script src="/static/app/bootstrap.js?v=20260522b"></script>
+    <script type="module" src="/static/app.js?v=20260522b"></script>
 </body>
 
 </html>

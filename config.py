@@ -36,6 +36,7 @@ RF_PACKET_DIR = os.path.join(BASE_DIR, "data", "rf_packets")
 DEVICE_MAP_FILE = os.path.join(BASE_DIR, "data", "device_map.json")
 DEVICE_SCHEDULE_FILE = os.path.join(BASE_DIR, "data", "device_schedules.json")
 DEVICE_TEMPLATE_FILE = os.path.join(BASE_DIR, "data", "device_template.json")
+SCENE_KEYWORD_FILE = os.path.join(BASE_DIR, "data", "scene_keywords.json")
 ENABLE_DEVICE_MAP_BACKUP = os.getenv("ENABLE_DEVICE_MAP_BACKUP", "0") == "1"
 
 DISCOVER_TIMEOUT = float(os.getenv("DISCOVER_TIMEOUT", "2"))

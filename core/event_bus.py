@@ -115,7 +115,12 @@ def _format_console_event(event: Dict[str, Any]) -> str:
 
     if not DEBUG_VOICE and level in {"error", "warning"}:
         label = _CONSOLE_SOURCE_ALIAS.get(normalized_source, normalized_source or "system")
-        return f"[{timestamp}] {label}: false"
+        detail = message or "false"
+        if payload:
+            error_text = payload.get("error")
+            if isinstance(error_text, str) and error_text.strip():
+                detail = error_text.strip()
+        return f"[{timestamp}] {label}: {detail}"
 
     base = f"[{timestamp}] [{level.upper()}] [{source}] {message}"
     if not payload:

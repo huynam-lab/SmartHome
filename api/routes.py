@@ -17,6 +17,7 @@ from core.device_state_store import build_devices_snapshot, remove_device_state
 from core.event_bus import list_events, log_event
 from services.device_learning_service import delete_device, delete_device_action, save_empty_device, save_learned_device, update_device_action
 from services.device_schedule_service import create_device_schedule, delete_device_schedule, list_device_schedules
+from services.scene_keyword_service import get_scene_keyword_config, save_scene_keyword_config
 from services.device_template_service import get_device_template, list_device_templates
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
@@ -483,6 +484,90 @@ def delete_device_schedule_by_id(device_id: str, schedule_id: str):
         "ok": True,
         "message": "Đã xóa lịch hẹn thiết bị.",
         "schedule": removed,
+    }), 200
+
+
+@api_bp.get("/scene-keywords")
+@require_auth
+def get_scene_keywords():
+    try:
+        config = get_scene_keyword_config()
+        devices = list_devices()
+    except ValueError as error:
+        return jsonify({
+            "ok": False,
+            "message": str(error),
+        }), 400
+    except Exception as error:
+        return jsonify({
+            "ok": False,
+            "message": f"Không đọc được cấu hình từ khóa ngữ cảnh: {error}",
+        }), 500
+
+    device_ids = [str(item.get("id") or "").strip() for item in devices if str(item.get("id") or "").strip()]
+    scene_devices = [
+        {
+            "id": str(item.get("id") or "").strip(),
+            "name": str(item.get("name") or item.get("id") or "").strip(),
+            "device_kind": str(item.get("device_kind") or "").strip().lower(),
+        }
+        for item in devices
+        if str(item.get("id") or "").strip()
+    ]
+    scenes = [
+        {"name": scene_name, **dict(scene_payload or {})}
+        for scene_name, scene_payload in dict(config.get("scenes") or {}).items()
+    ]
+    return jsonify({
+        "ok": True,
+        "config": config,
+        "scenes": scenes,
+        "device_ids": device_ids,
+        "devices": scene_devices,
+    }), 200
+
+
+@api_bp.put("/scene-keywords")
+@require_auth
+def put_scene_keywords():
+    payload = request.get_json(silent=True) or {}
+    config_payload = payload.get("config", payload)
+
+    try:
+        saved_config = save_scene_keyword_config(config_payload)
+        devices = list_devices()
+    except ValueError as error:
+        return jsonify({
+            "ok": False,
+            "message": str(error),
+        }), 400
+    except Exception as error:
+        return jsonify({
+            "ok": False,
+            "message": f"Không lưu được cấu hình từ khóa ngữ cảnh: {error}",
+        }), 500
+
+    device_ids = [str(item.get("id") or "").strip() for item in devices if str(item.get("id") or "").strip()]
+    scene_devices = [
+        {
+            "id": str(item.get("id") or "").strip(),
+            "name": str(item.get("name") or item.get("id") or "").strip(),
+            "device_kind": str(item.get("device_kind") or "").strip().lower(),
+        }
+        for item in devices
+        if str(item.get("id") or "").strip()
+    ]
+    scenes = [
+        {"name": scene_name, **dict(scene_payload or {})}
+        for scene_name, scene_payload in dict(saved_config.get("scenes") or {}).items()
+    ]
+    return jsonify({
+        "ok": True,
+        "message": "Đã lưu cấu hình từ khóa ngữ cảnh.",
+        "config": saved_config,
+        "scenes": scenes,
+        "device_ids": device_ids,
+        "devices": scene_devices,
     }), 200
 
 

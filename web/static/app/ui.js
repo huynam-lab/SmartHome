@@ -177,6 +177,10 @@ export function setDeviceScheduleFeedback(text = "", mode = "error") {
     setFeedback(app.dom.deviceScheduleModalStatusEl, text, mode);
 }
 
+export function setSceneKeywordsFeedback(text = "", mode = "error") {
+    setFeedback(app.dom.sceneKeywordsStatusEl, text, mode);
+}
+
 export function setAddCameraFeedback(text = "", mode = "error") {
     setFeedback(app.dom.addCameraModalStatusEl, text, mode);
 }
@@ -353,6 +357,7 @@ export function setControlLockState(locked) {
     if (app.dom.micBtnEl) app.dom.micBtnEl.disabled = locked || app.state.isSendingChat;
     if (app.dom.learnCommandBtnEl) app.dom.learnCommandBtnEl.disabled = locked || app.state.isLearningIr;
     if (app.dom.addDeviceBtnEl) app.dom.addDeviceBtnEl.disabled = locked || app.state.isAddDeviceSubmitting;
+    if (app.dom.sceneKeywordsBtnEl) app.dom.sceneKeywordsBtnEl.disabled = locked || app.state.isSceneKeywordsSubmitting;
     if (app.dom.deviceControlBackBtnEl) app.dom.deviceControlBackBtnEl.disabled = locked;
     if (app.dom.deviceScheduleTriggerBtnEl) app.dom.deviceScheduleTriggerBtnEl.disabled = locked || app.state.isScheduleSubmitting;
     if (app.dom.addFunctionTriggerBtnEl) app.dom.addFunctionTriggerBtnEl.disabled = locked;

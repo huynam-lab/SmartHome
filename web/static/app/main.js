@@ -10,6 +10,7 @@ import {
     closeCameraControlPage,
     openCameraCenterPage,
     openCameraControlPageFromCurrentRoute,
+    closeSceneKeywordsModal,
     openAddCameraModal,
     openCurrentCameraEditModal,
     closeDeviceControlPage,
@@ -17,10 +18,12 @@ import {
     closeIrLearnModal as closeIrLearnForm,
     learnIrCommand,
     loadDevices,
+    openSceneKeywordsModal,
     openAddFunctionButtonModal,
     openAddDeviceModal,
     openDeviceScheduleModal,
     openIrLearnModal,
+    submitSceneKeywords,
     setDeviceScheduleAction,
     submitAddCamera,
     submitAddFunctionButton,
@@ -28,6 +31,7 @@ import {
     submitDeviceSchedule,
     syncRouteFromLocation,
     syncIrDeviceSelection,
+    updateAddDeviceTemplatePreview,
     updateIrSemanticForm,
     updateIrSignalTypeForm,
 } from "./devices.js";
@@ -44,6 +48,12 @@ import {
 } from "./ui.js";
 
 function bindEvents() {
+    document.querySelectorAll("[data-unlock-readonly]").forEach((element) => {
+        const unlock = () => element.removeAttribute("readonly");
+        element.addEventListener("focus", unlock, { once: true });
+        element.addEventListener("pointerdown", unlock, { once: true });
+    });
+
     app.dom.reloadBtnEl?.addEventListener("click", loadDevices);
     app.dom.cameraCenterOpenBtnEl?.addEventListener("click", openCameraCenterPage);
     app.dom.cameraCenterBackBtnEl?.addEventListener("click", closeCameraCenterPage);
@@ -65,6 +75,7 @@ function bindEvents() {
     app.dom.authRegisterTabEl?.addEventListener("click", () => setAuthMode("register"));
     app.dom.settingsBtnEl?.addEventListener("click", toggleSettingsMenu);
     app.dom.addDeviceBtnEl?.addEventListener("click", openAddDeviceModal);
+    app.dom.sceneKeywordsBtnEl?.addEventListener("click", openSceneKeywordsModal);
     app.dom.learnCommandBtnEl?.addEventListener("click", openIrLearnModal);
     app.dom.changePasswordBtnEl?.addEventListener("click", openPasswordModal);
     app.dom.logoutBtnEl?.addEventListener("click", handleLogout);
@@ -74,6 +85,7 @@ function bindEvents() {
     app.dom.addDeviceCloseBtnEl?.addEventListener("click", closeAddDeviceModal);
     app.dom.addDeviceBackdropEl?.addEventListener("click", closeAddDeviceModal);
     app.dom.addDeviceFormEl?.addEventListener("submit", submitAddDevice);
+    app.dom.addDeviceTemplateSelectEl?.addEventListener("change", updateAddDeviceTemplatePreview);
     app.dom.deviceControlBackBtnEl?.addEventListener("click", closeDeviceControlPage);
     app.dom.deviceScheduleTriggerBtnEl?.addEventListener("click", openDeviceScheduleModal);
     app.dom.addFunctionTriggerBtnEl?.addEventListener("click", openAddFunctionButtonModal);
@@ -85,6 +97,10 @@ function bindEvents() {
     app.dom.deviceScheduleBackdropEl?.addEventListener("click", closeDeviceScheduleModal);
     app.dom.deviceScheduleCancelBtnEl?.addEventListener("click", closeDeviceScheduleModal);
     app.dom.deviceScheduleFormEl?.addEventListener("submit", submitDeviceSchedule);
+    app.dom.sceneKeywordsCloseBtnEl?.addEventListener("click", closeSceneKeywordsModal);
+    app.dom.sceneKeywordsBackdropEl?.addEventListener("click", closeSceneKeywordsModal);
+    app.dom.sceneKeywordsCancelBtnEl?.addEventListener("click", closeSceneKeywordsModal);
+    app.dom.sceneKeywordsFormEl?.addEventListener("submit", submitSceneKeywords);
     app.dom.deviceScheduleActionInputEl?.addEventListener("change", (event) => {
         setDeviceScheduleAction(event.target?.value);
     });
@@ -119,6 +135,7 @@ function bindEvents() {
             closeAddCameraModal();
             closeAddFunctionButtonModal();
             closeDeviceScheduleModal();
+            closeSceneKeywordsModal();
             closeIrLearnForm();
         }
     });

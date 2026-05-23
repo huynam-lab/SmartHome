@@ -1,0 +1,30 @@
+{
+  "scenes": {
+    "all_off": {
+      "action": "off",
+      "description": "",
+      "keywords": [
+        "Về thôi",
+        "Ngủ thôi",
+        "Đi làm"
+      ],
+      "exclude_device_ids": [
+        "dieu_hoa"
+      ],
+      "exclude_device_kinds": []
+    },
+    "all_on_except_cooling": {
+      "action": "on",
+      "description": "",
+      "keywords": [
+        "Bật hết",
+        "Đến nhà",
+        "Dậy thôi"
+      ],
+      "exclude_device_ids": [
+        "dieu_hoa"
+      ],
+      "exclude_device_kinds": []
+    }
+  }
+}

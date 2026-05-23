@@ -46,7 +46,7 @@ def verify_user_credentials(email: str, password: str):
         return {
             "ok": False,
             "status": 400,
-            "message": "Vui long nhap day du email va mat khau.",
+            "message": "Vui lòng nhập email và mật khẩu.",
         }
 
     try:
@@ -64,14 +64,14 @@ def verify_user_credentials(email: str, password: str):
         return {
             "ok": False,
             "status": 503,
-            "message": "Khong the ket noi MongoDB Atlas luc nay.",
+            "message": "Không thể kết nối",
         }
 
     if not account:
         return {
             "ok": False,
             "status": 401,
-            "message": "Email hoac mat khau khong dung.",
+            "message": "Email hoặc mật khẩu không đúng.",
         }
 
     password_hash = str(account.get("mat_khau_hash") or "").strip()
@@ -79,7 +79,7 @@ def verify_user_credentials(email: str, password: str):
         return {
             "ok": False,
             "status": 401,
-            "message": "Email hoac mat khau khong dung.",
+            "message": "Email hoặc mật khẩu không đúng.",
         }
 
     return {
@@ -99,14 +99,14 @@ def change_user_password(email: str, current_password: str, new_password: str):
         return {
             "ok": False,
             "status": 400,
-            "message": "Vui long nhap day du mat khau cu va mat khau moi.",
+            "message": "Vui lòng nhập đầy đủ",
         }
 
     if len(raw_new_password) < 6:
         return {
             "ok": False,
             "status": 400,
-            "message": "Mat khau moi phai co it nhat 6 ky tu.",
+            "message": "Mật khẩu mới phải có ít nhất 6 ký tự.",
         }
 
     try:
@@ -132,7 +132,7 @@ def change_user_password(email: str, current_password: str, new_password: str):
         return {
             "ok": False,
             "status": 404,
-            "message": "Khong tim thay tai khoan can doi mat khau.",
+            "message": "không tìm thấy tài khoản với email đã cung cấp.",
         }
 
     password_hash = str(account.get("mat_khau_hash") or "").strip()
@@ -140,14 +140,14 @@ def change_user_password(email: str, current_password: str, new_password: str):
         return {
             "ok": False,
             "status": 401,
-            "message": "Mat khau cu khong dung.",
+            "message": "Mật khẩu hiện tại không đúng.",
         }
 
     if check_password_hash(password_hash, raw_new_password):
         return {
             "ok": False,
             "status": 400,
-            "message": "Mat khau moi phai khac mat khau cu.",
+            "message": "Mật khẩu mới không được trùng với mật khẩu hiện tại.",
         }
 
     try:
@@ -159,13 +159,13 @@ def change_user_password(email: str, current_password: str, new_password: str):
         return {
             "ok": False,
             "status": 503,
-            "message": "Khong the cap nhat mat khau luc nay.",
+            "message": "không thể cập nhập",
         }
 
     return {
         "ok": True,
         "status": 200,
-        "message": "Doi mat khau thanh cong.",
+        "message": "Đổi mật khẩu thành công.",
     }
 
 
@@ -178,14 +178,14 @@ def register_user_account(email: str, password: str, jetson_id: str):
         return {
             "ok": False,
             "status": 400,
-            "message": "Vui long nhap day du email, mat khau va ma Jetson.",
+            "message": "Vui lòng nhập đầy đủ email, mật khẩu và mã thiết bị.",
         }
 
     if len(raw_password) < 6:
         return {
             "ok": False,
             "status": 400,
-            "message": "Mat khau phai co it nhat 6 ky tu.",
+            "message": "Mật khẩu phải có ít nhất 6 ký tự.",
         }
 
     try:
@@ -195,7 +195,7 @@ def register_user_account(email: str, password: str, jetson_id: str):
             return {
                 "ok": False,
                 "status": 409,
-                "message": "Email nay da ton tai. Vui long dung email khac.",
+                "message": "Email này đã tồn tại. Vui lòng dùng email khác.",
             }
 
         jetson_account_count = collection.count_documents({"jetson_id": normalized_jetson_id})
@@ -215,7 +215,7 @@ def register_user_account(email: str, password: str, jetson_id: str):
         return {
             "ok": False,
             "status": 409,
-            "message": "Email nay da ton tai. Vui long dung email khac.",
+            "message": "Email này đã tồn tại. Vui lòng dùng email khác.",
         }
     except AuthConfigurationError as error:
         return {
@@ -227,7 +227,7 @@ def register_user_account(email: str, password: str, jetson_id: str):
         return {
             "ok": False,
             "status": 503,
-            "message": "Khong the ket noi MongoDB Atlas luc nay.",
+            "message": "không thể kết nối Data base lúc này.",
         }
 
     return {

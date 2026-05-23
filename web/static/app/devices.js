@@ -25,6 +25,7 @@ import {
     setChatStatus,
     setDeviceScheduleFeedback,
     setIrLearnModalFeedback,
+    setSceneKeywordsFeedback,
     setSummaryText,
     toggleDeviceMenu,
 } from "./ui.js";
@@ -752,6 +753,14 @@ function getAddableTemplateOptions() {
     );
 }
 
+function getTemplateOptionIcon(templateId) {
+    const normalizedId = String(templateId || "").trim().toLowerCase();
+    if (normalizedId === "dieu_hoa") return "❄️";
+    if (normalizedId === "den_thong_minh") return "💡";
+    if (normalizedId === "cong_tac") return "🎚️";
+    return "🧩";
+}
+
 function getLearnableDevices() {
     return app.state.deviceInventory;
 }
@@ -854,10 +863,41 @@ export function renderAddDeviceTemplateOptions() {
     getAddableTemplateOptions().forEach((template) => {
         const templateId = escapeHtml(template.id || "");
         const templateName = escapeHtml(template.template_name || templateId);
-        optionsMarkup.push(`<option value="${templateId}">${templateName}</option>`);
+        const templateIcon = escapeHtml(getTemplateOptionIcon(template.id));
+        optionsMarkup.push(`<option value="${templateId}">${templateIcon} ${templateName}</option>`);
     });
     app.dom.addDeviceTemplateSelectEl.innerHTML = optionsMarkup.join("");
     app.dom.addDeviceTemplateSelectEl.disabled = getAddableTemplateOptions().length === 0;
+    updateAddDeviceTemplatePreview();
+}
+
+export function updateAddDeviceTemplatePreview() {
+    if (!app.dom.addDeviceTemplatePreviewEl) {
+        return;
+    }
+    const selectedTemplateId = String(app.dom.addDeviceTemplateSelectEl?.value || "").trim();
+    const selectedTemplate = getAddableTemplateOptions().find((template) => String(template.id || "").trim() === selectedTemplateId);
+    if (!selectedTemplate) {
+        app.dom.addDeviceTemplatePreviewEl.innerHTML = `
+            <span class="template-preview-icon" aria-hidden="true">🧩</span>
+            <div class="template-preview-copy">
+                <strong>Chưa chọn loại thiết bị</strong>
+                <small>Hãy chọn một mẫu để tiếp tục.</small>
+            </div>
+        `;
+        return;
+    }
+
+    const icon = escapeHtml(getTemplateOptionIcon(selectedTemplate.id));
+    const name = escapeHtml(selectedTemplate.template_name || selectedTemplate.id || "Thiết bị");
+    const typeLabel = escapeHtml(selectedTemplate.device_kind || selectedTemplate.id || "");
+    app.dom.addDeviceTemplatePreviewEl.innerHTML = `
+        <span class="template-preview-icon" aria-hidden="true">${icon}</span>
+        <div class="template-preview-copy">
+            <strong>${name}</strong>
+            <small>${typeLabel}</small>
+        </div>
+    `;
 }
 
 export function renderIrDeviceOptions() {
@@ -947,6 +987,7 @@ export function openAddDeviceModal() {
     setAddDeviceFeedback("");
     app.dom.addDeviceFormEl?.reset();
     renderAddDeviceTemplateOptions();
+    updateAddDeviceTemplatePreview();
     app.dom.addDeviceModalEl?.classList.add("is-visible");
     app.dom.addDeviceModalEl?.setAttribute("aria-hidden", "false");
     loadIrTemplateOptions().finally(() => window.setTimeout(() => app.dom.addDeviceTemplateSelectEl?.focus(), 0));
@@ -1783,6 +1824,300 @@ export function closeDeviceScheduleModal() {
     renderDeviceScheduleList();
     setDeviceScheduleFeedback("");
     setDeviceScheduleLoadingState(false);
+}
+
+function splitSceneEditorValues(value) {
+    return Array.from(new Set(
+        String(value || "")
+            .split(/[\n,]+/)
+            .map((item) => item.trim())
+            .filter(Boolean)
+    ));
+}
+
+function formatSceneEditorValues(values) {
+    return Array.isArray(values) ? values.join("\n") : "";
+}
+
+function setSceneKeywordsLoadingState(loading) {
+    app.state.isSceneKeywordsSubmitting = loading;
+    [
+        app.dom.sceneKeywordsSubmitBtnEl,
+        app.dom.sceneKeywordsCancelBtnEl,
+        app.dom.sceneKeywordsCloseBtnEl,
+    ].forEach((el) => {
+        if (el) {
+            el.disabled = loading;
+        }
+    });
+    app.dom.sceneKeywordsListEl?.querySelectorAll("textarea, input").forEach((el) => {
+        el.disabled = loading;
+    });
+}
+
+function formatSceneActionLabel(action) {
+    return String(action || "").trim().toLowerCase() === "on" ? "Bật" : "Tắt";
+}
+
+function formatSceneDisplayName(sceneName) {
+    const normalizedName = String(sceneName || "").trim().toLowerCase();
+    if (normalizedName === "all_off") {
+        return "Tắt toàn bộ thiết bị";
+    }
+    if (normalizedName === "all_on_except_cooling") {
+        return "Bật thiết bị sinh hoạt";
+    }
+    return normalizedName ? normalizedName.replaceAll("_", " ") : "Ngữ cảnh";
+}
+
+function resolveSceneExcludedDeviceIds(scene, devices = []) {
+    const explicitIds = new Set((scene?.exclude_device_ids || []).map((item) => String(item || "").trim().toLowerCase()).filter(Boolean));
+    const excludedKinds = new Set((scene?.exclude_device_kinds || []).map((item) => String(item || "").trim().toLowerCase()).filter(Boolean));
+    devices.forEach((device) => {
+        const deviceId = String(device?.id || "").trim().toLowerCase();
+        const deviceKind = String(device?.device_kind || "").trim().toLowerCase();
+        if (deviceId && excludedKinds.has(deviceKind)) {
+            explicitIds.add(deviceId);
+        }
+    });
+    return Array.from(explicitIds);
+}
+
+function buildSceneExcludedDeviceChipsMarkup(selectedIds = [], devices = []) {
+    if (!selectedIds.length) {
+        return '<div class="scene-keyword-device-empty">Chưa loại trừ thiết bị nào.</div>';
+    }
+
+    return `
+        <div class="scene-keyword-selected-list">
+            ${selectedIds.map((deviceId) => {
+                const device = devices.find((item) => String(item?.id || "").trim().toLowerCase() === String(deviceId || "").trim().toLowerCase());
+                const deviceName = device?.name || deviceId || "Thiết bị";
+                return `
+                    <button
+                        type="button"
+                        class="scene-keyword-selected-chip"
+                        data-scene-remove-device="${escapeHtml(deviceId)}"
+                    >
+                        <span>${escapeHtml(deviceName)}</span>
+                        <span class="scene-keyword-selected-chip-x" aria-hidden="true">×</span>
+                    </button>
+                `;
+            }).join("")}
+        </div>
+    `;
+}
+
+function buildSceneDeviceSelectorMarkup(scene, devices = []) {
+    if (!devices.length) {
+        return '<div class="scene-keyword-device-empty">Chưa có thiết bị nào để chọn loại trừ.</div>';
+    }
+
+    const excludedIds = resolveSceneExcludedDeviceIds(scene, devices);
+    return `
+        <div class="scene-keyword-device-picker-shell" data-scene-device-picker>
+            <select class="scene-keyword-device-select" data-scene-device-select>
+                <option value="">Chọn thiết bị cần loại trừ</option>
+                ${devices.map((device) => `
+                    <option value="${escapeHtml(device.id || "")}">
+                        ${escapeHtml(device.name || device.id || "Thiết bị")}
+                    </option>
+                `).join("")}
+            </select>
+            <div class="scene-keyword-selected-wrap" data-scene-selected-devices>
+                ${buildSceneExcludedDeviceChipsMarkup(excludedIds, devices)}
+            </div>
+        </div>
+    `;
+}
+
+function buildSceneKeywordCardMarkup(scene, devices = []) {
+    const sceneName = String(scene?.name || "").trim();
+    return `
+        <article class="scene-keyword-card" data-scene-name="${escapeHtml(sceneName)}">
+            <div class="scene-keyword-card-head">
+                <div>
+                    <h3>${escapeHtml(formatSceneDisplayName(sceneName))}</h3>
+                </div>
+                <span class="scene-keyword-action-chip">${escapeHtml(formatSceneActionLabel(scene?.action || ""))}</span>
+            </div>
+            <div class="scene-keyword-grid">
+                <label class="auth-field">
+                    <span>Từ khóa, mỗi dòng một cụm</span>
+                    <textarea data-scene-field="keywords" rows="5" placeholder="Ví dụ: bat het&#10;den nha roi&#10;day thoi">${escapeHtml(formatSceneEditorValues(scene?.keywords))}</textarea>
+                </label>
+                <div class="auth-field scene-keyword-device-picker">
+                    <span>Loại trừ thiết bị</span>
+                    ${buildSceneDeviceSelectorMarkup(scene, devices)}
+                </div>
+            </div>
+        </article>
+    `;
+}
+
+function bindSceneKeywordCardActions() {
+    app.dom.sceneKeywordsListEl?.querySelectorAll("[data-scene-device-select]").forEach((selectEl) => {
+        selectEl.addEventListener("change", () => {
+            const selectedId = String(selectEl.value || "").trim().toLowerCase();
+            selectEl.value = "";
+            if (!selectedId) {
+                return;
+            }
+
+            const card = selectEl.closest("[data-scene-name]");
+            const selectedWrap = card?.querySelector("[data-scene-selected-devices]");
+            if (!card || !selectedWrap) {
+                return;
+            }
+
+            const currentIds = Array.from(selectedWrap.querySelectorAll("[data-scene-remove-device]"))
+                .map((button) => String(button.getAttribute("data-scene-remove-device") || "").trim().toLowerCase())
+                .filter(Boolean);
+            if (!currentIds.includes(selectedId)) {
+                currentIds.push(selectedId);
+            }
+            selectedWrap.innerHTML = buildSceneExcludedDeviceChipsMarkup(currentIds, app.state.sceneKeywordDevices);
+            bindSceneKeywordCardActions();
+        });
+    });
+
+    app.dom.sceneKeywordsListEl?.querySelectorAll("[data-scene-remove-device]").forEach((button) => {
+        button.addEventListener("click", () => {
+            const removeId = String(button.getAttribute("data-scene-remove-device") || "").trim().toLowerCase();
+            const selectedWrap = button.closest("[data-scene-selected-devices]");
+            if (!selectedWrap || !removeId) {
+                return;
+            }
+            const nextIds = Array.from(selectedWrap.querySelectorAll("[data-scene-remove-device]"))
+                .map((item) => String(item.getAttribute("data-scene-remove-device") || "").trim().toLowerCase())
+                .filter((item) => item && item !== removeId);
+            selectedWrap.innerHTML = buildSceneExcludedDeviceChipsMarkup(nextIds, app.state.sceneKeywordDevices);
+            bindSceneKeywordCardActions();
+        });
+    });
+}
+
+function renderSceneKeywordsEditor(config, devices = []) {
+    app.state.sceneKeywordConfig = config && typeof config === "object" ? config : { scenes: {} };
+    app.state.sceneKeywordDevices = Array.isArray(devices) ? devices : [];
+    const scenes = Object.entries(app.state.sceneKeywordConfig.scenes || {}).map(([name, payload]) => ({
+        name,
+        ...(payload || {}),
+    }));
+    if (!app.dom.sceneKeywordsListEl) {
+        return;
+    }
+    if (!scenes.length) {
+        app.dom.sceneKeywordsListEl.innerHTML = '<div class="device-schedule-empty">Chưa có ngữ cảnh nào trong cấu hình.</div>';
+        return;
+    }
+    app.dom.sceneKeywordsListEl.innerHTML = scenes.map((scene) => buildSceneKeywordCardMarkup(scene, app.state.sceneKeywordDevices)).join("");
+    bindSceneKeywordCardActions();
+}
+
+async function loadSceneKeywords() {
+    const { result } = await fetchJson("/api/scene-keywords");
+    renderSceneKeywordsEditor(
+        result.config || { scenes: {} },
+        Array.isArray(result.devices) ? result.devices : [],
+    );
+    return result;
+}
+
+export async function openSceneKeywordsModal() {
+    if (!app.state.isAuthenticated || app.state.isSceneKeywordsSubmitting) {
+        return;
+    }
+    closeSettingsMenu();
+    setSceneKeywordsFeedback("");
+    app.dom.sceneKeywordsModalEl?.classList.add("is-visible");
+    app.dom.sceneKeywordsModalEl?.setAttribute("aria-hidden", "false");
+    app.dom.sceneKeywordsListEl && (app.dom.sceneKeywordsListEl.innerHTML = '<div class="device-schedule-empty">Đang tải cấu hình ngữ cảnh...</div>');
+    window.setTimeout(() => app.dom.sceneKeywordsCloseBtnEl?.focus(), 0);
+
+    try {
+        await loadSceneKeywords();
+    } catch (error) {
+        if (!error.isAuth) {
+            setSceneKeywordsFeedback(error.message || "Không tải được cấu hình từ khóa ngữ cảnh.");
+            app.dom.sceneKeywordsListEl && (app.dom.sceneKeywordsListEl.innerHTML = '<div class="device-schedule-empty">Không tải được cấu hình.</div>');
+        }
+    }
+}
+
+export function closeSceneKeywordsModal() {
+    if (app.state.isSceneKeywordsSubmitting) {
+        return;
+    }
+    app.dom.sceneKeywordsModalEl?.classList.remove("is-visible");
+    app.dom.sceneKeywordsModalEl?.setAttribute("aria-hidden", "true");
+    if (app.dom.sceneKeywordsListEl) {
+        app.dom.sceneKeywordsListEl.innerHTML = "";
+    }
+    app.state.sceneKeywordDevices = [];
+    setSceneKeywordsFeedback("");
+    setSceneKeywordsLoadingState(false);
+}
+
+export async function submitSceneKeywords(event) {
+    event.preventDefault();
+    if (!app.state.isAuthenticated || app.state.isSceneKeywordsSubmitting) {
+        return;
+    }
+
+    const sceneCards = Array.from(app.dom.sceneKeywordsListEl?.querySelectorAll("[data-scene-name]") || []);
+    if (!sceneCards.length) {
+        setSceneKeywordsFeedback("Không có ngữ cảnh nào để lưu.");
+        return;
+    }
+
+    const nextConfig = { scenes: {} };
+    for (const card of sceneCards) {
+        const sceneName = String(card.getAttribute("data-scene-name") || "").trim();
+        const sceneLabel = formatSceneDisplayName(sceneName);
+        const previousScene = (app.state.sceneKeywordConfig?.scenes || {})[sceneName] || {};
+        const keywordsValue = card.querySelector('[data-scene-field="keywords"]')?.value || "";
+
+        const keywords = splitSceneEditorValues(keywordsValue);
+        if (!keywords.length) {
+            setSceneKeywordsFeedback(`Ngữ cảnh '${sceneLabel}' cần ít nhất một từ khóa.`);
+            card.querySelector('[data-scene-field="keywords"]')?.focus();
+            return;
+        }
+
+        const selectedDeviceIds = Array.from(card.querySelectorAll("[data-scene-remove-device]"))
+            .map((input) => String(input.getAttribute("data-scene-remove-device") || "").trim().toLowerCase())
+            .filter(Boolean);
+
+        nextConfig.scenes[sceneName] = {
+            action: String(previousScene.action || "").trim().toLowerCase() || "off",
+            description: "",
+            keywords,
+            exclude_device_ids: Array.from(new Set(selectedDeviceIds)),
+            exclude_device_kinds: [],
+        };
+    }
+
+    setSceneKeywordsFeedback("");
+    setSceneKeywordsLoadingState(true);
+    try {
+        const { result } = await fetchJson("/api/scene-keywords", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ config: nextConfig }),
+        });
+        renderSceneKeywordsEditor(
+            result.config || nextConfig,
+            Array.isArray(result.devices) ? result.devices : [],
+        );
+        setSceneKeywordsFeedback(result.message || "Đã lưu cấu hình từ khóa ngữ cảnh.", "success");
+    } catch (error) {
+        if (!error.isAuth) {
+            setSceneKeywordsFeedback(error.message || "Không lưu được cấu hình từ khóa ngữ cảnh.");
+        }
+    } finally {
+        setSceneKeywordsLoadingState(false);
+    }
 }
 
 export function renderDevices(devices) {
