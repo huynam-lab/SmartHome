@@ -1,5 +1,5 @@
-const APP_CACHE = "smart-home-app-v5";
-const RUNTIME_CACHE = "smart-home-runtime-v5";
+const APP_CACHE = "smart-home-app-v8";
+const RUNTIME_CACHE = "smart-home-runtime-v8";
 const APP_SHELL_URLS = [
     "/",
     "/index",

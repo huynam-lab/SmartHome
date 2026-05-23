@@ -278,7 +278,7 @@ def execute_scene_from_text(text: str) -> Optional[Dict[str, Any]]:
     action = str(scene.get("action") or "").strip().lower()
     action_text = "bật" if action == "on" else "tắt"
     if success_count and not failure_count:
-        message = f"Em đã {action_text} {success_count} thiết bị theo ngữ cảnh."
+        message = f"Dạ,Em đã {action_text} {success_count} thiết bị ạ"
     elif success_count and failure_count:
         message = f"Em đã {action_text} {success_count} thiết bị, còn {failure_count} thiết bị chưa xử lý được."
     else:

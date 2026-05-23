@@ -10,6 +10,9 @@ import {
     closeCameraControlPage,
     openCameraCenterPage,
     openCameraControlPageFromCurrentRoute,
+    restoreDeviceCenterScrollPosition,
+    restoreCameraCenterScrollPosition,
+    runRouteTransitionWithLoading,
     closeSceneKeywordsModal,
     openAddCameraModal,
     openCurrentCameraEditModal,
@@ -158,12 +161,24 @@ function bindEvents() {
     }, { passive: true });
 
     window.addEventListener("popstate", () => {
-        syncRouteFromLocation();
-        openCameraControlPageFromCurrentRoute({ renderOnly: true });
+        const previousView = app.state.currentView;
+        runRouteTransitionWithLoading(null, () => {
+            syncRouteFromLocation();
+            openCameraControlPageFromCurrentRoute({ renderOnly: true });
+            if (previousView === "camera-center" && app.state.currentView === "device-center") {
+                restoreDeviceCenterScrollPosition();
+            }
+            if (previousView === "camera-control" && app.state.currentView === "camera-center") {
+                restoreCameraCenterScrollPosition();
+            }
+        });
     });
 }
 
 export function startApp() {
+    if ("scrollRestoration" in window.history) {
+        window.history.scrollRestoration = "manual";
+    }
     syncRouteFromLocation({ render: false });
     openCameraControlPageFromCurrentRoute({ renderOnly: true });
     setAuthMode("login");

@@ -34,7 +34,10 @@ const DEVICE_FUNCTION_STORAGE_KEY = "smarthome.deviceFunctions.v1";
 const DEVICE_INVENTORY_CACHE_KEY = "smarthome.deviceInventory.v1";
 const LAST_OPENED_DEVICE_KEY = "smarthome.lastOpenedDevice.v1";
 const CAMERA_INVENTORY_STORAGE_KEY = "smarthome.cameraInventory.v1";
+const DEVICE_CENTER_SCROLL_KEY = "smarthome.deviceCenterScrollY.v1";
+const CAMERA_CENTER_SCROLL_KEY = "smarthome.cameraCenterScrollY.v1";
 const FUNCTION_BUTTON_LONG_PRESS_MS = 1200;
+const ROUTE_LOADING_MIN_MS = 220;
 let hasBoundFunctionDeleteDismissListener = false;
 
 function isDeviceControlRoute() {
@@ -80,6 +83,124 @@ function buildCameraControlHref(camera) {
 function navigateTo(url, { replace = false } = {}) {
     const method = replace ? "replaceState" : "pushState";
     window.history[method]({}, "", url);
+}
+
+function getCurrentScrollPosition(extra = {}) {
+    return {
+        windowY: window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0,
+        shellTop: app.dom.appShellEl?.scrollTop || 0,
+        ...extra,
+    };
+}
+
+function readSavedScrollPosition(storageKey, label) {
+    try {
+        const raw = window.sessionStorage.getItem(storageKey);
+        if (!raw) {
+            return null;
+        }
+        const parsed = JSON.parse(raw);
+        return parsed && typeof parsed === "object" ? parsed : null;
+    } catch (error) {
+        console.warn(`[${label}] failed to read saved scroll position`, error);
+        return null;
+    }
+}
+
+function saveScrollPosition(storageKey, position, label) {
+    try {
+        window.sessionStorage.setItem(storageKey, JSON.stringify(position));
+    } catch (error) {
+        console.warn(`[${label}] failed to save scroll position`, error);
+    }
+}
+
+function restoreScrollPosition(storageKey, label, restoreExtra = () => { }) {
+    const position = readSavedScrollPosition(storageKey, label);
+    if (!position) {
+        return;
+    }
+
+    const windowY = Number(position.windowY || 0);
+    const shellTop = Number(position.shellTop || 0);
+
+    window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+            if (app.dom.appShellEl) {
+                app.dom.appShellEl.scrollTop = Number.isFinite(shellTop) && shellTop > 0 ? shellTop : 0;
+            }
+            window.scrollTo(0, Number.isFinite(windowY) && windowY > 0 ? windowY : 0);
+            restoreExtra(position);
+        });
+    });
+}
+
+function focusWithoutScroll(element) {
+    if (!element) {
+        return;
+    }
+    try {
+        element.focus({ preventScroll: true });
+    } catch (error) {
+        element.focus();
+    }
+}
+
+function setRouteButtonLoading(button, loading) {
+    if (!button) {
+        return;
+    }
+    button.classList.toggle("is-loading", Boolean(loading));
+    button.disabled = Boolean(loading);
+    button.setAttribute("aria-busy", String(Boolean(loading)));
+}
+
+function setAppRouteTransitioning(loading) {
+    document.body.classList.toggle("is-route-transitioning", Boolean(loading));
+    document.body.setAttribute("aria-busy", String(Boolean(loading)));
+}
+
+function finishRouteLoading(button) {
+    window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+            setRouteButtonLoading(button, false);
+            setAppRouteTransitioning(false);
+        });
+    });
+}
+
+export function runRouteTransitionWithLoading(button, transition) {
+    setRouteButtonLoading(button, true);
+    setAppRouteTransitioning(true);
+    window.setTimeout(() => {
+        transition();
+        finishRouteLoading(button);
+    }, ROUTE_LOADING_MIN_MS);
+}
+
+function saveCameraCenterScrollPosition() {
+    saveScrollPosition(
+        CAMERA_CENTER_SCROLL_KEY,
+        getCurrentScrollPosition({ cameraListTop: app.dom.cameraListEl?.scrollTop || 0 }),
+        "camera"
+    );
+}
+
+function saveDeviceCenterScrollPosition() {
+    saveScrollPosition(DEVICE_CENTER_SCROLL_KEY, getCurrentScrollPosition(), "devices");
+}
+
+export function restoreDeviceCenterScrollPosition() {
+    restoreScrollPosition(DEVICE_CENTER_SCROLL_KEY, "devices");
+}
+
+export function restoreCameraCenterScrollPosition() {
+    restoreScrollPosition(CAMERA_CENTER_SCROLL_KEY, "camera", (position) => {
+        const cameraListTop = Number(position.cameraListTop || 0);
+        if (app.dom.cameraListEl && Number.isFinite(cameraListTop)) {
+            app.dom.cameraListEl.scrollTop = cameraListTop;
+        }
+    });
 }
 
 function setPageChrome(view) {
@@ -757,8 +878,8 @@ function getTemplateOptionIcon(templateId) {
     const normalizedId = String(templateId || "").trim().toLowerCase();
     if (normalizedId === "dieu_hoa") return "❄️";
     if (normalizedId === "den_thong_minh") return "💡";
-    if (normalizedId === "cong_tac") return "🎚️";
-    return "🧩";
+    if (normalizedId === "cong_tac") return "⏻";
+    return "🍃";
 }
 
 function getLearnableDevices() {
@@ -879,7 +1000,7 @@ export function updateAddDeviceTemplatePreview() {
     const selectedTemplate = getAddableTemplateOptions().find((template) => String(template.id || "").trim() === selectedTemplateId);
     if (!selectedTemplate) {
         app.dom.addDeviceTemplatePreviewEl.innerHTML = `
-            <span class="template-preview-icon" aria-hidden="true">🧩</span>
+            <span class="template-preview-icon" aria-hidden="true">🍃</span>
             <div class="template-preview-copy">
                 <strong>Chưa chọn loại thiết bị</strong>
                 <small>Hãy chọn một mẫu để tiếp tục.</small>
@@ -1106,17 +1227,20 @@ function setAddFunctionButtonLoadingState(loading) {
 function buildDeviceCard(device) {
     const currentState = getEffectiveDeviceState(device);
     const deviceControlHref = buildDeviceControlHref(device);
+    const deviceKind = device.type === "ir" ? "" : "";
 
     return `
         <article class="device-card ${currentState === "on" ? "is-on" : ""}" data-device-id="${escapeHtml(device.id)}">
             <a class="device-card-main" href="${escapeHtml(deviceControlHref)}" aria-label="Mở điều khiển cho ${escapeHtml(device.name)}">
-                <div class="device-card-top">
+                <div class="device-card-hero">
                     <div class="device-title-group">
                         <div class="device-icon">${getDeviceIcon(device)}</div>
-                        <div>
+                        <div class="device-card-copy">
                             <h3>${escapeHtml(device.name)}</h3>
+                            <small>${escapeHtml(deviceKind)}</small>
                         </div>
                     </div>
+                    <span class="device-card-arrow" aria-hidden="true">→</span>
                 </div>
             </a>
             <div class="device-card-tools">
@@ -1633,12 +1757,14 @@ export function openDeviceControlPage(deviceId) {
     if (!device) {
         return;
     }
-    cacheOpenedDevice(device);
-    closeDeviceMenus();
-    app.state.currentDeviceControlId = device.id;
-    navigateTo(buildDeviceControlHref(device));
-    syncRouteFromLocation();
-    window.setTimeout(() => app.dom.deviceControlBackBtnEl?.focus(), 0);
+    runRouteTransitionWithLoading(null, () => {
+        cacheOpenedDevice(device);
+        closeDeviceMenus();
+        app.state.currentDeviceControlId = device.id;
+        navigateTo(buildDeviceControlHref(device));
+        syncRouteFromLocation();
+        window.setTimeout(() => app.dom.deviceControlBackBtnEl?.focus(), 0);
+    });
 }
 
 export function closeDeviceControlPage({ navigate = true } = {}) {
@@ -1653,21 +1779,33 @@ export function closeDeviceControlPage({ navigate = true } = {}) {
 }
 
 export function openCameraCenterPage() {
-    closeDeviceMenus();
-    navigateTo(buildCameraCenterHref());
-    syncRouteFromLocation();
-    window.setTimeout(() => app.dom.cameraAddTriggerBtnEl?.focus(), 0);
+    runRouteTransitionWithLoading(null, () => {
+        closeDeviceMenus();
+        saveDeviceCenterScrollPosition();
+        navigateTo(buildCameraCenterHref());
+        syncRouteFromLocation();
+        window.setTimeout(() => focusWithoutScroll(app.dom.cameraAddTriggerBtnEl), 0);
+    });
 }
 
 export function closeCameraCenterPage({ navigate = true } = {}) {
-    if (navigate && isCameraCenterRoute()) {
-        navigateTo("/index");
-        syncRouteFromLocation({ render: false });
+    if (!navigate) {
+        app.state.currentView = "device-center";
+        app.state.currentCameraControlId = null;
+        setPageChrome("device-center");
         return;
     }
-    app.state.currentView = "device-center";
-    app.state.currentCameraControlId = null;
-    setPageChrome("device-center");
+    runRouteTransitionWithLoading(app.dom.cameraCenterBackBtnEl, () => {
+        if (isCameraCenterRoute()) {
+            navigateTo("/index");
+            syncRouteFromLocation({ render: false });
+            restoreDeviceCenterScrollPosition();
+            return;
+        }
+        app.state.currentView = "device-center";
+        app.state.currentCameraControlId = null;
+        setPageChrome("device-center");
+    });
 }
 
 export function openCameraControlPage(cameraId) {
@@ -1675,11 +1813,14 @@ export function openCameraControlPage(cameraId) {
     if (!camera) {
         return;
     }
-    closeDeviceMenus();
-    app.state.currentCameraControlId = camera.id;
-    navigateTo(buildCameraControlHref(camera));
-    syncRouteFromLocation();
-    window.setTimeout(() => app.dom.cameraControlBackBtnEl?.focus(), 0);
+    runRouteTransitionWithLoading(null, () => {
+        closeDeviceMenus();
+        saveCameraCenterScrollPosition();
+        app.state.currentCameraControlId = camera.id;
+        navigateTo(buildCameraControlHref(camera));
+        syncRouteFromLocation();
+        window.setTimeout(() => focusWithoutScroll(app.dom.cameraControlBackBtnEl), 0);
+    });
 }
 
 export function openCameraControlPageFromCurrentRoute({ renderOnly = false } = {}) {
@@ -1696,14 +1837,23 @@ export function openCameraControlPageFromCurrentRoute({ renderOnly = false } = {
 }
 
 export function closeCameraControlPage({ navigate = true } = {}) {
-    if (navigate && isCameraControlRoute()) {
-        navigateTo(buildCameraCenterHref());
-        syncRouteFromLocation({ render: false });
+    if (!navigate) {
+        app.state.currentView = "camera-center";
+        app.state.currentCameraControlId = null;
+        setPageChrome("camera-center");
         return;
     }
-    app.state.currentView = "camera-center";
-    app.state.currentCameraControlId = null;
-    setPageChrome("camera-center");
+    runRouteTransitionWithLoading(app.dom.cameraControlBackBtnEl, () => {
+        if (isCameraControlRoute()) {
+            navigateTo(buildCameraCenterHref());
+            syncRouteFromLocation({ render: false });
+            restoreCameraCenterScrollPosition();
+            return;
+        }
+        app.state.currentView = "camera-center";
+        app.state.currentCameraControlId = null;
+        setPageChrome("camera-center");
+    });
 }
 
 export function openCurrentCameraEditModal() {
@@ -1891,9 +2041,9 @@ function buildSceneExcludedDeviceChipsMarkup(selectedIds = [], devices = []) {
     return `
         <div class="scene-keyword-selected-list">
             ${selectedIds.map((deviceId) => {
-                const device = devices.find((item) => String(item?.id || "").trim().toLowerCase() === String(deviceId || "").trim().toLowerCase());
-                const deviceName = device?.name || deviceId || "Thiết bị";
-                return `
+        const device = devices.find((item) => String(item?.id || "").trim().toLowerCase() === String(deviceId || "").trim().toLowerCase());
+        const deviceName = device?.name || deviceId || "Thiết bị";
+        return `
                     <button
                         type="button"
                         class="scene-keyword-selected-chip"
@@ -1903,7 +2053,7 @@ function buildSceneExcludedDeviceChipsMarkup(selectedIds = [], devices = []) {
                         <span class="scene-keyword-selected-chip-x" aria-hidden="true">×</span>
                     </button>
                 `;
-            }).join("")}
+    }).join("")}
         </div>
     `;
 }
