@@ -19,7 +19,6 @@ import {
     addChatMessage,
     closeDeviceMenus,
     closeSettingsMenu,
-    setAddCameraFeedback,
     setAddDeviceFeedback,
     setAddFunctionButtonFeedback,
     setChatStatus,
@@ -33,23 +32,13 @@ import {
 const DEVICE_FUNCTION_STORAGE_KEY = "smarthome.deviceFunctions.v1";
 const DEVICE_INVENTORY_CACHE_KEY = "smarthome.deviceInventory.v1";
 const LAST_OPENED_DEVICE_KEY = "smarthome.lastOpenedDevice.v1";
-const CAMERA_INVENTORY_STORAGE_KEY = "smarthome.cameraInventory.v1";
 const DEVICE_CENTER_SCROLL_KEY = "smarthome.deviceCenterScrollY.v1";
-const CAMERA_CENTER_SCROLL_KEY = "smarthome.cameraCenterScrollY.v1";
 const FUNCTION_BUTTON_LONG_PRESS_MS = 1200;
 const ROUTE_LOADING_MIN_MS = 220;
 let hasBoundFunctionDeleteDismissListener = false;
 
 function isDeviceControlRoute() {
     return window.location.pathname === "/device-control";
-}
-
-function isCameraCenterRoute() {
-    return window.location.pathname === "/camera";
-}
-
-function isCameraControlRoute() {
-    return window.location.pathname === "/camera-control";
 }
 
 function getRequestedDeviceIdFromUrl() {
@@ -60,24 +49,8 @@ function getRequestedDeviceNameFromUrl() {
     return new URLSearchParams(window.location.search).get("device_name") || "";
 }
 
-function getRequestedCameraIdFromUrl() {
-    return new URLSearchParams(window.location.search).get("camera_id") || "";
-}
-
-function getRequestedCameraNameFromUrl() {
-    return new URLSearchParams(window.location.search).get("camera_name") || "";
-}
-
 function buildDeviceControlHref(device) {
     return `/device-control?device_id=${encodeURIComponent(device.id)}&device_name=${encodeURIComponent(device.name || "")}`;
-}
-
-function buildCameraCenterHref() {
-    return "/camera";
-}
-
-function buildCameraControlHref(camera) {
-    return `/camera-control?camera_id=${encodeURIComponent(camera.id)}&camera_name=${encodeURIComponent(camera.name || "")}`;
 }
 
 function navigateTo(url, { replace = false } = {}) {
@@ -178,14 +151,6 @@ export function runRouteTransitionWithLoading(button, transition) {
     }, ROUTE_LOADING_MIN_MS);
 }
 
-function saveCameraCenterScrollPosition() {
-    saveScrollPosition(
-        CAMERA_CENTER_SCROLL_KEY,
-        getCurrentScrollPosition({ cameraListTop: app.dom.cameraListEl?.scrollTop || 0 }),
-        "camera"
-    );
-}
-
 function saveDeviceCenterScrollPosition() {
     saveScrollPosition(DEVICE_CENTER_SCROLL_KEY, getCurrentScrollPosition(), "devices");
 }
@@ -194,86 +159,30 @@ export function restoreDeviceCenterScrollPosition() {
     restoreScrollPosition(DEVICE_CENTER_SCROLL_KEY, "devices");
 }
 
-export function restoreCameraCenterScrollPosition() {
-    restoreScrollPosition(CAMERA_CENTER_SCROLL_KEY, "camera", (position) => {
-        const cameraListTop = Number(position.cameraListTop || 0);
-        if (app.dom.cameraListEl && Number.isFinite(cameraListTop)) {
-            app.dom.cameraListEl.scrollTop = cameraListTop;
-        }
-    });
-}
-
 function setPageChrome(view) {
     const isDeviceControl = view === "device-control";
-    const isCameraCenter = view === "camera-center";
-    const isCameraControl = view === "camera-control";
-    const isDeviceCenter = !isDeviceControl && !isCameraCenter && !isCameraControl;
+    const isDeviceCenter = !isDeviceControl;
 
     document.body.dataset.page = isDeviceControl
         ? "device-control"
-        : isCameraCenter
-            ? "camera"
-            : isCameraControl
-                ? "camera-control"
-                : "index";
+        : "index";
     document.body.classList.toggle("device-control-screen", isDeviceControl);
-    document.body.classList.toggle("camera-screen", isCameraCenter || isCameraControl);
 
     app.dom.deviceCenterPageEl?.classList.toggle("is-hidden", !isDeviceCenter);
     app.dom.deviceCenterPageEl?.setAttribute("aria-hidden", String(!isDeviceCenter));
     app.dom.deviceControlPageEl?.classList.toggle("is-hidden", !isDeviceControl);
     app.dom.deviceControlPageEl?.setAttribute("aria-hidden", String(!isDeviceControl));
-    app.dom.cameraCenterPageEl?.classList.toggle("is-hidden", !isCameraCenter);
-    app.dom.cameraCenterPageEl?.setAttribute("aria-hidden", String(!isCameraCenter));
-    app.dom.cameraControlPageEl?.classList.toggle("is-hidden", !isCameraControl);
-    app.dom.cameraControlPageEl?.setAttribute("aria-hidden", String(!isCameraControl));
 }
 
 export function syncRouteFromLocation({ render = true } = {}) {
     const isControlView = isDeviceControlRoute();
-    const isCameraView = isCameraCenterRoute();
-    const isCameraDetailView = isCameraControlRoute();
     const requestedDeviceId = getRequestedDeviceIdFromUrl();
     const requestedDeviceName = getRequestedDeviceNameFromUrl();
-    const requestedCameraId = getRequestedCameraIdFromUrl();
-    const requestedCameraName = getRequestedCameraNameFromUrl();
 
     app.state.currentView = isControlView
         ? "device-control"
-        : isCameraView
-            ? "camera-center"
-            : isCameraDetailView
-                ? "camera-control"
-                : "device-center";
+        : "device-center";
     setPageChrome(app.state.currentView);
-
-    if (isCameraView) {
-        app.state.currentDeviceControlId = null;
-        if (render) {
-            renderCameraCenterPage();
-        }
-        return;
-    }
-
-    if (isCameraDetailView) {
-        app.state.currentDeviceControlId = null;
-        if (requestedCameraId) {
-            app.state.currentCameraControlId = requestedCameraId;
-        } else if (!app.state.currentCameraControlId) {
-            app.state.currentCameraControlId = app.state.cameraInventory[0]?.id || null;
-        }
-
-        if (requestedCameraName && !app.state.currentCameraControlId && app.dom.cameraControlTitleEl) {
-            app.dom.cameraControlTitleEl.textContent = requestedCameraName;
-        }
-
-        if (render) {
-            renderCameraControlPage();
-        }
-        return;
-    }
-
-    app.state.currentCameraControlId = null;
 
     if (!isControlView) {
         app.state.currentDeviceControlId = null;
@@ -293,226 +202,6 @@ export function syncRouteFromLocation({ render = true } = {}) {
     if (render) {
         renderDeviceControlPage();
     }
-}
-
-function createCameraId() {
-    return `camera_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function readPersistedCameras() {
-    try {
-        const raw = window.localStorage.getItem(CAMERA_INVENTORY_STORAGE_KEY);
-        const parsed = raw ? JSON.parse(raw) : [];
-        return Array.isArray(parsed) ? parsed : [];
-    } catch (error) {
-        console.warn("[camera] failed to read camera inventory", error);
-        return [];
-    }
-}
-
-function writePersistedCameras(cameras) {
-    try {
-        window.localStorage.setItem(CAMERA_INVENTORY_STORAGE_KEY, JSON.stringify(Array.isArray(cameras) ? cameras : []));
-    } catch (error) {
-        console.warn("[camera] failed to persist camera inventory", error);
-    }
-}
-
-function normalizeCamera(camera = {}) {
-    return {
-        id: String(camera.id || createCameraId()),
-        name: String(camera.name || "Camera").trim() || "Camera",
-        protocol: String(camera.protocol || "mjpeg").trim().toLowerCase() || "mjpeg",
-        stream_url: String(camera.stream_url || "").trim(),
-        room: String(camera.room || "").trim(),
-        notes: String(camera.notes || "").trim(),
-    };
-}
-
-function loadPersistedCameras() {
-    app.state.cameraInventory = readPersistedCameras().map(normalizeCamera);
-    writePersistedCameras(app.state.cameraInventory);
-}
-
-function saveCameraInventory() {
-    writePersistedCameras(app.state.cameraInventory.map(normalizeCamera));
-}
-
-function getCameraById(cameraId) {
-    return app.state.cameraInventory.find((camera) => String(camera.id || "") === String(cameraId || "")) || null;
-}
-
-function getProtocolLabel(protocol) {
-    const normalized = String(protocol || "").trim().toLowerCase();
-    if (normalized === "mjpeg") return "MJPEG / ảnh trực tiếp";
-    if (normalized === "hls") return "HLS";
-    if (normalized === "rtsp") return "RTSP";
-    if (normalized === "embed") return "Trang nhúng / HTTP";
-    return normalized || "Chưa rõ";
-}
-
-function buildCameraPreviewMarkup(camera) {
-    const streamUrl = String(camera?.stream_url || "").trim();
-    if (!streamUrl) {
-        return `
-            <div class="camera-preview-empty">
-                <strong>Chưa có URL camera</strong>
-                <p>Hãy chỉnh sửa camera này và thêm đường dẫn xem trực tiếp.</p>
-            </div>
-        `;
-    }
-
-    const protocol = String(camera?.protocol || "").trim().toLowerCase();
-    if (protocol === "rtsp") {
-        return `
-            <div class="camera-preview-empty">
-                <strong>RTSP không mở trực tiếp trong đa số trình duyệt</strong>
-                <p>Hãy chuyển sang HLS, MJPEG hoặc dùng một HTTP gateway rồi dán URL đó vào đây.</p>
-                <a class="primary-btn" href="${escapeHtml(streamUrl)}" target="_blank" rel="noreferrer">Mở URL camera</a>
-            </div>
-        `;
-    }
-
-    if (protocol === "mjpeg" || /\.(jpg|jpeg|png|gif|mjpg|mjpeg)(\?.*)?$/i.test(streamUrl)) {
-        return `<img class="camera-preview-media" src="${escapeHtml(streamUrl)}" alt="Luồng camera ${escapeHtml(camera?.name || "Camera")}" />`;
-    }
-
-    if (protocol === "hls") {
-        return `
-            <div class="camera-preview-empty">
-                <strong>Luồng HLS đã được lưu</strong>
-                <p>Trình phát HLS chưa được tích hợp trong giao diện này. Bạn vẫn có thể mở nhanh luồng ở tab mới.</p>
-                <a class="primary-btn" href="${escapeHtml(streamUrl)}" target="_blank" rel="noreferrer">Mở luồng HLS</a>
-            </div>
-        `;
-    }
-
-    return `<iframe class="camera-preview-frame" src="${escapeHtml(streamUrl)}" title="Camera ${escapeHtml(camera?.name || "Camera")}" loading="lazy" referrerpolicy="no-referrer"></iframe>`;
-}
-
-function buildCameraCard(camera) {
-    const href = buildCameraControlHref(camera);
-    return `
-        <article class="camera-card" data-camera-id="${escapeHtml(camera.id)}">
-            <a class="camera-card-main" href="${escapeHtml(href)}" aria-label="Mở camera ${escapeHtml(camera.name)}">
-                <div class="camera-card-icon" aria-hidden="true">📷</div>
-                <div class="camera-card-copy">
-                    <strong>${escapeHtml(camera.name)}</strong>
-                    <small>${escapeHtml(camera.room || getProtocolLabel(camera.protocol))}</small>
-                </div>
-            </a>
-            <div class="camera-card-tools">
-                <button type="button" class="camera-card-action" data-camera-edit="${escapeHtml(camera.id)}">Sửa</button>
-                <button type="button" class="camera-card-action danger" data-camera-delete="${escapeHtml(camera.id)}">Xóa</button>
-            </div>
-        </article>
-    `;
-}
-
-function updateCameraSummary() {
-    if (app.dom.cameraSummaryTextEl) {
-        const count = app.state.cameraInventory.length;
-        app.dom.cameraSummaryTextEl.textContent = `${count} camera`;
-    }
-}
-
-function renderCameraCenterPage() {
-    updateCameraSummary();
-    if (app.dom.cameraEmptyStateEl) {
-        app.dom.cameraEmptyStateEl.classList.toggle("is-hidden", app.state.cameraInventory.length > 0);
-    }
-    if (!app.dom.cameraListEl) {
-        return;
-    }
-    app.dom.cameraListEl.innerHTML = app.state.cameraInventory.map((camera) => buildCameraCard(camera)).join("");
-    bindCameraActions();
-}
-
-function renderCameraControlPage() {
-    const camera = getCameraById(app.state.currentCameraControlId);
-    if (!camera) {
-        if (app.dom.cameraPreviewShellEl) {
-            app.dom.cameraPreviewShellEl.innerHTML = '<div class="camera-preview-empty"><strong>Không tìm thấy camera</strong><p>Hãy quay lại và thêm hoặc chọn một camera khác.</p></div>';
-        }
-        if (app.dom.cameraControlTitleEl) app.dom.cameraControlTitleEl.textContent = "Camera";
-        if (app.dom.cameraControlSubtitleEl) app.dom.cameraControlSubtitleEl.textContent = "Không có camera nào phù hợp với liên kết hiện tại.";
-        if (app.dom.cameraControlProtocolEl) app.dom.cameraControlProtocolEl.textContent = "Chưa cấu hình";
-        if (app.dom.cameraControlRoomEl) app.dom.cameraControlRoomEl.textContent = "Chưa đặt";
-        if (app.dom.cameraControlStreamUrlEl) app.dom.cameraControlStreamUrlEl.textContent = "Chưa có URL";
-        if (app.dom.cameraControlNotesEl) app.dom.cameraControlNotesEl.textContent = "Hãy thêm camera để xem tại đây.";
-        return;
-    }
-
-    if (app.dom.cameraControlTitleEl) app.dom.cameraControlTitleEl.textContent = camera.name || "Camera";
-    if (app.dom.cameraControlSubtitleEl) {
-        app.dom.cameraControlSubtitleEl.textContent = `${getProtocolLabel(camera.protocol)}${camera.room ? ` • ${camera.room}` : ""}`;
-    }
-    if (app.dom.cameraPreviewShellEl) {
-        app.dom.cameraPreviewShellEl.innerHTML = buildCameraPreviewMarkup(camera);
-    }
-    if (app.dom.cameraControlProtocolEl) app.dom.cameraControlProtocolEl.textContent = getProtocolLabel(camera.protocol);
-    if (app.dom.cameraControlRoomEl) app.dom.cameraControlRoomEl.textContent = camera.room || "Chưa đặt";
-    if (app.dom.cameraControlStreamUrlEl) app.dom.cameraControlStreamUrlEl.textContent = camera.stream_url || "Chưa có URL";
-    if (app.dom.cameraControlNotesEl) {
-        app.dom.cameraControlNotesEl.textContent = camera.notes || "Bạn có thể lưu ghi chú để phân biệt camera chính, camera phụ hoặc vị trí lắp đặt.";
-    }
-}
-
-function bindCameraActions() {
-    document.querySelectorAll(".camera-card-main[href]").forEach((link) => {
-        link.addEventListener("click", (event) => {
-            event.preventDefault();
-            const cameraId = String(link.closest("[data-camera-id]")?.dataset.cameraId || "");
-            if (cameraId) {
-                openCameraControlPage(cameraId);
-            }
-        });
-    });
-
-    document.querySelectorAll("[data-camera-edit]").forEach((button) => {
-        button.addEventListener("click", () => {
-            const cameraId = String(button.dataset.cameraEdit || "");
-            if (!cameraId) {
-                return;
-            }
-            app.state.currentCameraControlId = cameraId;
-            openAddCameraModal({ cameraId });
-        });
-    });
-
-    document.querySelectorAll("[data-camera-delete]").forEach((button) => {
-        button.addEventListener("click", () => {
-            const cameraId = String(button.dataset.cameraDelete || "");
-            if (!cameraId) {
-                return;
-            }
-            const camera = getCameraById(cameraId);
-            if (!camera) {
-                return;
-            }
-            const confirmed = window.confirm(`Xóa camera "${camera.name}"?`);
-            if (!confirmed) {
-                return;
-            }
-            app.state.cameraInventory = app.state.cameraInventory.filter((item) => String(item.id || "") !== cameraId);
-            saveCameraInventory();
-
-            if (String(app.state.currentCameraControlId || "") === cameraId) {
-                app.state.currentCameraControlId = app.state.cameraInventory[0]?.id || null;
-                if (isCameraControlRoute()) {
-                    if (app.state.currentCameraControlId) {
-                        openCameraControlPage(app.state.currentCameraControlId);
-                    } else {
-                        navigateTo(buildCameraCenterHref(), { replace: true });
-                        syncRouteFromLocation();
-                    }
-                    return;
-                }
-            }
-
-            renderCameraCenterPage();
-        });
-    });
 }
 
 function readCachedDeviceInventory() {
@@ -1193,24 +882,6 @@ function setAddDeviceLoadingState(loading) {
     });
 }
 
-function setAddCameraLoadingState(loading) {
-    app.state.isAddCameraSubmitting = loading;
-    [
-        app.dom.addCameraSubmitBtnEl,
-        app.dom.addCameraCancelBtnEl,
-        app.dom.addCameraCloseBtnEl,
-        app.dom.addCameraNameInputEl,
-        app.dom.addCameraProtocolSelectEl,
-        app.dom.addCameraUrlInputEl,
-        app.dom.addCameraRoomInputEl,
-        app.dom.addCameraNotesInputEl,
-    ].forEach((el) => {
-        if (el) {
-            el.disabled = loading;
-        }
-    });
-}
-
 function setAddFunctionButtonLoadingState(loading) {
     [
         app.dom.addFunctionButtonSubmitBtnEl,
@@ -1778,128 +1449,6 @@ export function closeDeviceControlPage({ navigate = true } = {}) {
     setPageChrome("device-center");
 }
 
-export function openCameraCenterPage() {
-    runRouteTransitionWithLoading(null, () => {
-        closeDeviceMenus();
-        saveDeviceCenterScrollPosition();
-        navigateTo(buildCameraCenterHref());
-        syncRouteFromLocation();
-        window.setTimeout(() => focusWithoutScroll(app.dom.cameraAddTriggerBtnEl), 0);
-    });
-}
-
-export function closeCameraCenterPage({ navigate = true } = {}) {
-    if (!navigate) {
-        app.state.currentView = "device-center";
-        app.state.currentCameraControlId = null;
-        setPageChrome("device-center");
-        return;
-    }
-    runRouteTransitionWithLoading(app.dom.cameraCenterBackBtnEl, () => {
-        if (isCameraCenterRoute()) {
-            navigateTo("/index");
-            syncRouteFromLocation({ render: false });
-            restoreDeviceCenterScrollPosition();
-            return;
-        }
-        app.state.currentView = "device-center";
-        app.state.currentCameraControlId = null;
-        setPageChrome("device-center");
-    });
-}
-
-export function openCameraControlPage(cameraId) {
-    const camera = getCameraById(cameraId);
-    if (!camera) {
-        return;
-    }
-    runRouteTransitionWithLoading(null, () => {
-        closeDeviceMenus();
-        saveCameraCenterScrollPosition();
-        app.state.currentCameraControlId = camera.id;
-        navigateTo(buildCameraControlHref(camera));
-        syncRouteFromLocation();
-        window.setTimeout(() => focusWithoutScroll(app.dom.cameraControlBackBtnEl), 0);
-    });
-}
-
-export function openCameraControlPageFromCurrentRoute({ renderOnly = false } = {}) {
-    if (!isCameraControlRoute()) {
-        return;
-    }
-    const requestedCameraId = getRequestedCameraIdFromUrl() || app.state.currentCameraControlId;
-    if (requestedCameraId) {
-        app.state.currentCameraControlId = requestedCameraId;
-    }
-    if (renderOnly) {
-        renderCameraControlPage();
-    }
-}
-
-export function closeCameraControlPage({ navigate = true } = {}) {
-    if (!navigate) {
-        app.state.currentView = "camera-center";
-        app.state.currentCameraControlId = null;
-        setPageChrome("camera-center");
-        return;
-    }
-    runRouteTransitionWithLoading(app.dom.cameraControlBackBtnEl, () => {
-        if (isCameraControlRoute()) {
-            navigateTo(buildCameraCenterHref());
-            syncRouteFromLocation({ render: false });
-            restoreCameraCenterScrollPosition();
-            return;
-        }
-        app.state.currentView = "camera-center";
-        app.state.currentCameraControlId = null;
-        setPageChrome("camera-center");
-    });
-}
-
-export function openCurrentCameraEditModal() {
-    const cameraId = String(app.state.currentCameraControlId || "").trim();
-    openAddCameraModal({ cameraId });
-}
-
-export function openAddCameraModal({ cameraId = "" } = {}) {
-    if (!app.state.isAuthenticated || app.state.isAddCameraSubmitting) {
-        return;
-    }
-    closeSettingsMenu();
-    setAddCameraFeedback("");
-    app.dom.addCameraFormEl?.reset();
-
-    const camera = cameraId ? getCameraById(cameraId) : null;
-    if (camera) {
-        app.state.currentCameraControlId = camera.id;
-        if (app.dom.addCameraNameInputEl) app.dom.addCameraNameInputEl.value = camera.name || "";
-        if (app.dom.addCameraProtocolSelectEl) app.dom.addCameraProtocolSelectEl.value = camera.protocol || "mjpeg";
-        if (app.dom.addCameraUrlInputEl) app.dom.addCameraUrlInputEl.value = camera.stream_url || "";
-        if (app.dom.addCameraRoomInputEl) app.dom.addCameraRoomInputEl.value = camera.room || "";
-        if (app.dom.addCameraNotesInputEl) app.dom.addCameraNotesInputEl.value = camera.notes || "";
-        if (app.dom.addCameraFormEl) app.dom.addCameraFormEl.dataset.editCameraId = camera.id;
-    } else if (app.dom.addCameraFormEl) {
-        delete app.dom.addCameraFormEl.dataset.editCameraId;
-    }
-
-    app.dom.addCameraModalEl?.classList.add("is-visible");
-    app.dom.addCameraModalEl?.setAttribute("aria-hidden", "false");
-    window.setTimeout(() => app.dom.addCameraNameInputEl?.focus(), 0);
-}
-
-export function closeAddCameraModal() {
-    if (app.state.isAddCameraSubmitting) {
-        return;
-    }
-    app.dom.addCameraModalEl?.classList.remove("is-visible");
-    app.dom.addCameraModalEl?.setAttribute("aria-hidden", "true");
-    app.dom.addCameraFormEl?.reset();
-    if (app.dom.addCameraFormEl) {
-        delete app.dom.addCameraFormEl.dataset.editCameraId;
-    }
-    setAddCameraFeedback("");
-}
-
 export function openAddFunctionButtonModal() {
     if (!app.state.isAuthenticated || !app.state.currentDeviceControlId) {
         return;
@@ -2273,8 +1822,6 @@ export async function submitSceneKeywords(event) {
 export function renderDevices(devices) {
     app.state.deviceStateMap.clear();
     syncRouteFromLocation({ render: false });
-    renderCameraCenterPage();
-    renderCameraControlPage();
     if (!devices.length) {
         app.dom.deviceListEl.innerHTML = '<p class="empty-state">Chưa có thiết bị nào trong hệ thống.</p>';
         setSummaryText("0 thiết bị");
@@ -2291,7 +1838,6 @@ export function renderDevices(devices) {
 }
 
 export function hydrateCachedDevices() {
-    loadPersistedCameras();
     const cachedDevices = normalizeDeviceInventory(readCachedDeviceInventory());
     if (cachedDevices.length) {
         app.state.deviceInventory = cachedDevices;
@@ -2309,9 +1855,6 @@ export function hydrateCachedDevices() {
             return true;
         }
     }
-
-    renderCameraCenterPage();
-    renderCameraControlPage();
 
     return false;
 }
@@ -2436,62 +1979,6 @@ export async function submitAddDevice(event) {
     } finally {
         setAddDeviceLoadingState(false);
     }
-}
-
-export async function submitAddCamera(event) {
-    event.preventDefault();
-    if (!app.state.isAuthenticated || app.state.isAddCameraSubmitting || !app.dom.addCameraFormEl?.reportValidity()) {
-        return;
-    }
-
-    const name = String(app.dom.addCameraNameInputEl?.value || "").trim();
-    const protocol = String(app.dom.addCameraProtocolSelectEl?.value || "mjpeg").trim().toLowerCase();
-    const streamUrl = String(app.dom.addCameraUrlInputEl?.value || "").trim();
-    const room = String(app.dom.addCameraRoomInputEl?.value || "").trim();
-    const notes = String(app.dom.addCameraNotesInputEl?.value || "").trim();
-    const editCameraId = String(app.dom.addCameraFormEl?.dataset.editCameraId || "").trim();
-
-    if (!name) {
-        setAddCameraFeedback("Vui lòng nhập tên camera.");
-        app.dom.addCameraNameInputEl?.focus();
-        return;
-    }
-    if (!streamUrl) {
-        setAddCameraFeedback("Vui lòng nhập URL camera.");
-        app.dom.addCameraUrlInputEl?.focus();
-        return;
-    }
-
-    setAddCameraFeedback("");
-    setAddCameraLoadingState(true);
-
-    const normalizedRecord = normalizeCamera({
-        id: editCameraId || createCameraId(),
-        name,
-        protocol,
-        stream_url: streamUrl,
-        room,
-        notes,
-    });
-
-    if (editCameraId) {
-        app.state.cameraInventory = app.state.cameraInventory.map((camera) =>
-            String(camera.id || "") === editCameraId ? normalizedRecord : camera
-        );
-    } else {
-        app.state.cameraInventory = [...app.state.cameraInventory, normalizedRecord];
-    }
-
-    saveCameraInventory();
-    renderCameraCenterPage();
-    if (String(app.state.currentCameraControlId || "") === String(normalizedRecord.id || "") || isCameraControlRoute()) {
-        app.state.currentCameraControlId = normalizedRecord.id;
-        renderCameraControlPage();
-    }
-
-    setAddCameraFeedback(editCameraId ? "Đã cập nhật camera." : "Đã thêm camera.", "success");
-    window.setTimeout(() => closeAddCameraModal(), 400);
-    setAddCameraLoadingState(false);
 }
 
 export async function submitAddFunctionButton(event) {

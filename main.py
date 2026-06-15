@@ -87,28 +87,6 @@ def create_app():
             initial_device_name=str(request.args.get("device_name") or "").strip(),
         )
 
-    @app.get("/camera")
-    def camera_center():
-        return render_template(
-            "index.html",
-            initial_authenticated=bool(session.get("authenticated")),
-            initial_jetson_id=str(session.get("jetson_id") or "").strip(),
-            initial_page="camera",
-            initial_device_id="",
-            initial_device_name="",
-        )
-
-    @app.get("/camera-control")
-    def camera_control():
-        return render_template(
-            "index.html",
-            initial_authenticated=bool(session.get("authenticated")),
-            initial_jetson_id=str(session.get("jetson_id") or "").strip(),
-            initial_page="camera-control",
-            initial_device_id=str(request.args.get("camera_id") or "").strip(),
-            initial_device_name=str(request.args.get("camera_name") or "").strip(),
-        )
-
     @app.get("/manifest.webmanifest")
     def manifest():
         return send_from_directory(app.static_folder, "manifest.webmanifest", mimetype="application/manifest+json")

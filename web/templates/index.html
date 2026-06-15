@@ -24,7 +24,7 @@
 </head>
 
 <body
-    class="app-preboot {% if initial_page == 'device-control' %}device-control-screen {% endif %}{% if initial_page in ['camera', 'camera-control'] %}camera-screen {% endif %}{% if not initial_authenticated %}auth-locked{% endif %}"
+    class="app-preboot {% if initial_page == 'device-control' %}device-control-screen {% endif %}{% if not initial_authenticated %}auth-locked{% endif %}"
     data-authenticated="{{ 'true' if initial_authenticated else 'false' }}"
     data-jetson-id="{{ initial_jetson_id or '' }}" data-page="{{ initial_page or 'index' }}"
     data-device-id="{{ initial_device_id or '' }}" data-device-name="{{ initial_device_name or '' }}">
@@ -124,8 +124,8 @@
         </section>
 
         <section id="device-center-page"
-            class="chat-device-grid {% if initial_page in ['device-control', 'camera', 'camera-control'] %}is-hidden{% endif %}"
-            aria-hidden="{% if initial_page in ['device-control', 'camera', 'camera-control'] %}true{% else %}false{% endif %}">
+            class="chat-device-grid {% if initial_page == 'device-control' %}is-hidden{% endif %}"
+            aria-hidden="{% if initial_page == 'device-control' %}true{% else %}false{% endif %}">
             <section class="chat-panel glass-card">
                 <header class="chat-panel-header">
                     <div>
@@ -185,20 +185,6 @@
                     </div>
                 </aside>
 
-                <aside class="devices-panel embedded-devices-panel camera-entry-panel">
-                    <div class="section-head">
-                        <div>
-                            <p class="section-kicker">Camera</p>
-                        </div>
-                    </div>
-                    <button id="camera-center-open-btn" type="button" class="camera-hub-btn">
-                        <span class="camera-hub-icon" aria-hidden="true">📷</span>
-                        <span class="camera-hub-copy">
-                            <strong>Camera</strong>
-                        </span>
-                    </button>
-                </aside>
-
             </section>
         </section>
 
@@ -243,93 +229,6 @@
                 Thêm chức năng
             </button>
         </section>
-
-        <section id="camera-center-page"
-            class="device-control-page glass-card {% if initial_page != 'camera' %}is-hidden{% endif %}"
-            aria-hidden="{% if initial_page == 'camera' %}false{% else %}true{% endif %}">
-            <header class="device-control-header">
-                <button id="camera-center-back-btn" type="button"
-                    class="primary-btn secondary-tone device-control-back-btn">
-                    Quay lại
-                </button>
-                <div class="device-control-title-wrap">
-                    <p class="section-kicker">Camera Center</p>
-                    <h2>Camera</h2>
-                    <p class="device-control-subtitle">Quản lý danh sách camera và mở nhanh từng luồng xem.</p>
-                </div>
-                <button id="camera-add-trigger-btn" type="button" class="device-control-icon-btn"
-                    aria-label="Thêm camera">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
-                        stroke-linejoin="round" aria-hidden="true" focusable="false">
-                        <path d="M12 5v14" />
-                        <path d="M5 12h14" />
-                    </svg>
-                </button>
-            </header>
-
-            <div class="device-status-banner camera-summary-banner">
-                <div>
-                    <span class="info-label">Tổng camera</span>
-                    <div class="device-status-text">
-                        <span class="device-status-dot"></span>
-                        <strong id="camera-summary-text">0 camera</strong>
-                    </div>
-                </div>
-            </div>
-
-            <div id="camera-empty-state" class="empty-device-actions is-hidden">
-                Chưa có camera nào. Hãy bấm nút dấu cộng để thêm camera đầu tiên.
-            </div>
-
-            <div id="camera-list" class="device-control-functions camera-list" aria-live="polite"></div>
-        </section>
-
-        <section id="camera-control-page"
-            class="device-control-page glass-card {% if initial_page != 'camera-control' %}is-hidden{% endif %}"
-            aria-hidden="{% if initial_page == 'camera-control' %}false{% else %}true{% endif %}">
-            <header class="device-control-header">
-                <button id="camera-control-back-btn" type="button"
-                    class="primary-btn secondary-tone device-control-back-btn">
-                    Quay lại
-                </button>
-                <div class="device-control-title-wrap">
-                    <p class="section-kicker">Camera View</p>
-                    <h2 id="camera-control-title">{{ initial_device_name or "Camera" }}</h2>
-                    <p id="camera-control-subtitle" class="device-control-subtitle">{% if initial_device_name %}Đang tải
-                        thông tin cho {{ initial_device_name }}.{% else %}Chọn camera để xem luồng trực tiếp.{% endif %}
-                    </p>
-                </div>
-                <button id="camera-control-edit-btn" type="button" class="device-control-icon-btn"
-                    aria-label="Chỉnh sửa camera">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
-                        stroke-linejoin="round" aria-hidden="true" focusable="false">
-                        <path d="M12 20h9" />
-                        <path d="M16.5 3.5a2.12 2.12 0 1 1 3 3L7 19l-4 1 1-4 12.5-12.5Z" />
-                    </svg>
-                </button>
-            </header>
-
-            <div id="camera-preview-shell" class="camera-preview-shell" aria-live="polite"></div>
-
-            <div class="camera-meta-grid">
-                <article class="camera-meta-card">
-                    <span class="info-label">Giao thức</span>
-                    <strong id="camera-control-protocol">Chưa cấu hình</strong>
-                </article>
-                <article class="camera-meta-card">
-                    <span class="info-label">Khu vực</span>
-                    <strong id="camera-control-room">Chưa đặt</strong>
-                </article>
-            </div>
-
-            <div class="camera-detail-card">
-                <span class="info-label">Nguồn camera</span>
-                <code id="camera-control-stream-url" class="camera-stream-url">Chưa có URL</code>
-                <p id="camera-control-notes" class="device-control-subtitle">Thêm URL xem camera để hiển thị tại đây.
-                </p>
-            </div>
-        </section>
-
     </main>
 
     {% include "partials/chatbot.html" %}
@@ -453,58 +352,6 @@
                     <button id="add-device-cancel-btn" type="button" class="primary-btn secondary-tone">Hủy</button>
                 </div>
                 <div id="add-device-modal-status" class="auth-error" aria-live="polite"></div>
-            </form>
-        </section>
-    </div>
-
-    <div id="add-camera-modal" class="password-modal" aria-hidden="true">
-        <div id="add-camera-backdrop" class="password-modal-backdrop"></div>
-        <section class="password-modal-card glass-card" role="dialog" aria-modal="true"
-            aria-labelledby="add-camera-modal-title">
-            <div class="password-modal-head">
-                <div>
-                    <p class="eyebrow">Camera Setup</p>
-                    <h2 id="add-camera-modal-title">Thêm camera</h2>
-                </div>
-                <button id="add-camera-close-btn" type="button" class="password-close-btn" aria-label="Đóng">
-                    ×
-                </button>
-            </div>
-            <form id="add-camera-form" class="password-form" autocomplete="off">
-                <label class="auth-field" for="add-camera-name-input">
-                    <span>Tên camera</span>
-                    <input id="add-camera-name-input" name="camera_name" type="text"
-                        placeholder="Ví dụ: Camera phòng khách" maxlength="120" required />
-                </label>
-                <label class="auth-field" for="add-camera-protocol-select">
-                    <span>Giao thức</span>
-                    <select id="add-camera-protocol-select" name="camera_protocol" required>
-                        <option value="mjpeg">MJPEG / Ảnh trực tiếp</option>
-                        <option value="embed">Trang nhúng / HTTP</option>
-                        <option value="hls">HLS (.m3u8)</option>
-                        <option value="rtsp">RTSP</option>
-                    </select>
-                </label>
-                <label class="auth-field" for="add-camera-url-input">
-                    <span>URL camera</span>
-                    <input id="add-camera-url-input" name="camera_url" type="url"
-                        placeholder="Ví dụ: http://192.168.1.20:8080/video" required />
-                </label>
-                <label class="auth-field" for="add-camera-room-input">
-                    <span>Khu vực</span>
-                    <input id="add-camera-room-input" name="camera_room" type="text" placeholder="Ví dụ: Sân trước"
-                        maxlength="120" />
-                </label>
-                <label class="auth-field" for="add-camera-notes-input">
-                    <span>Ghi chú</span>
-                    <input id="add-camera-notes-input" name="camera_notes" type="text"
-                        placeholder="Ví dụ: Luồng phụ xem nhanh trên điện thoại" maxlength="180" />
-                </label>
-                <div class="ir-learn-form-actions">
-                    <button id="add-camera-submit-btn" type="submit" class="primary-btn">Lưu camera</button>
-                    <button id="add-camera-cancel-btn" type="button" class="primary-btn secondary-tone">Hủy</button>
-                </div>
-                <div id="add-camera-modal-status" class="auth-error" aria-live="polite"></div>
             </form>
         </section>
     </div>

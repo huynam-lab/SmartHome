@@ -181,10 +181,6 @@ export function setSceneKeywordsFeedback(text = "", mode = "error") {
     setFeedback(app.dom.sceneKeywordsStatusEl, text, mode);
 }
 
-export function setAddCameraFeedback(text = "", mode = "error") {
-    setFeedback(app.dom.addCameraModalStatusEl, text, mode);
-}
-
 export function markUiReady() {
     document.body.classList.remove("app-preboot");
 }

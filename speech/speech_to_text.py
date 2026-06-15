@@ -60,6 +60,42 @@ def _suppress_native_audio_stderr():
             os.close(devnull_fd)
 
 
+@contextmanager
+def _open_microphone_source(device_index):
+    """Mo/dong microphone an toan, tranh bug __exit__ cua speech_recognition."""
+    source = sr.Microphone(device_index=device_index)
+    entered = False
+
+    try:
+        source.__enter__()
+        entered = True
+        if getattr(source, "stream", None) is None:
+            raise RuntimeError("Microphone stream was not initialized.")
+        yield source
+    finally:
+        stream = getattr(source, "stream", None)
+        audio = getattr(source, "audio", None)
+        source.stream = None
+        source.audio = None
+
+        if stream is not None:
+            try:
+                stream.close()
+            except Exception:
+                pass
+
+        if audio is not None:
+            try:
+                audio.terminate()
+            except Exception:
+                pass
+
+        if not entered:
+            # __enter__ cua speech_recognition tu xu ly terminate khi mo stream that bai.
+            source.stream = None
+            source.audio = None
+
+
 def _check_audio_backend() -> bool:
     """Kiem tra backend micro (PyAudio/PortAudio) co hoat dong khong."""
     global _AUDIO_BACKEND_OK, _LAST_BACKEND_ERROR_AT, _LAST_BACKEND_ERROR_MESSAGE
@@ -120,6 +156,14 @@ def _resolve_microphone_index():
     return None
 
 
+def _invalidate_cached_microphone():
+    global _CACHED_MIC_INDEX, _CACHED_MIC_INDEX_AT
+
+    with _MIC_CACHE_LOCK:
+        _CACHED_MIC_INDEX = None
+        _CACHED_MIC_INDEX_AT = 0.0
+
+
 def print_microphone_list():
     try:
         with _suppress_native_audio_stderr():
@@ -174,60 +218,87 @@ def recognize_once():
         return ""
 
     mic_index = _resolve_microphone_index()
+    candidate_indexes = [mic_index]
+    if mic_index is not None:
+        candidate_indexes.append(None)
 
     try:
         with _suppress_native_audio_stderr():
-            with sr.Microphone(device_index=mic_index) as source:
-                if DEBUG_VOICE:
-                    log_event(source="stt", level="info", message="Bắt đầu lắng nghe microphone", payload={"mic_index": mic_index})
+            open_error = None
+            used_mic_index = mic_index
 
-                now = time.time()
-                should_refresh_ambient = (
-                    _LAST_AMBIENT_CALIBRATED_AT <= 0
-                    or (now - _LAST_AMBIENT_CALIBRATED_AT) >= max(1.0, AMBIENT_NOISE_REFRESH_SECONDS)
-                )
-                if should_refresh_ambient:
-                    _recognizer.adjust_for_ambient_noise(source, duration=AMBIENT_NOISE_DURATION)
-                    _LAST_AMBIENT_CALIBRATED_AT = time.time()
-                    if DEBUG_VOICE:
+            for candidate_index in candidate_indexes:
+                try:
+                    with _open_microphone_source(device_index=candidate_index) as source:
+                        used_mic_index = candidate_index
+
+                        if DEBUG_VOICE:
+                            log_event(source="stt", level="info", message="Bắt đầu lắng nghe microphone", payload={"mic_index": used_mic_index})
+
+                        now = time.time()
+                        should_refresh_ambient = (
+                            _LAST_AMBIENT_CALIBRATED_AT <= 0
+                            or (now - _LAST_AMBIENT_CALIBRATED_AT) >= max(1.0, AMBIENT_NOISE_REFRESH_SECONDS)
+                        )
+                        if should_refresh_ambient:
+                            _recognizer.adjust_for_ambient_noise(source, duration=AMBIENT_NOISE_DURATION)
+                            _LAST_AMBIENT_CALIBRATED_AT = time.time()
+                            if DEBUG_VOICE:
+                                log_event(
+                                    source="stt",
+                                    level="info",
+                                    message="Đã calibrate ambient noise",
+                                    payload={
+                                        "duration": AMBIENT_NOISE_DURATION,
+                                        "refresh_seconds": AMBIENT_NOISE_REFRESH_SECONDS,
+                                    },
+                                )
+                        elif DEBUG_VOICE:
+                            log_event(
+                                source="stt",
+                                level="info",
+                                message="Bo qua calibrate ambient noise vi con hieu luc",
+                                payload={
+                                    "seconds_since_last_calibration": round(now - _LAST_AMBIENT_CALIBRATED_AT, 3),
+                                    "refresh_seconds": AMBIENT_NOISE_REFRESH_SECONDS,
+                                },
+                            )
+
+                        try:
+                            if is_assistant_speaking():
+                                time.sleep(max(0.01, VOICE_BLOCK_SLEEP_SECONDS))
+                                return ""
+
+                            audio = _recognizer.listen(
+                                source,
+                                timeout=LISTEN_TIMEOUT,
+                                phrase_time_limit=PHRASE_TIME_LIMIT,
+                            )
+                            if DEBUG_VOICE:
+                                log_event(source="stt", level="info", message="Đã thu được audio từ microphone", payload={"timeout": LISTEN_TIMEOUT, "phrase_time_limit": PHRASE_TIME_LIMIT})
+                            open_error = None
+                            break
+                        except sr.WaitTimeoutError:
+                            now = time.time()
+                            if DEBUG_VOICE or (now - _LAST_IDLE_TIMEOUT_LOGGED_AT) >= max(1.0, STT_IDLE_LOG_INTERVAL_SECONDS):
+                                log_event(source="stt", level="info", message="Microphone đang chờ giọng nói", payload={"timeout": LISTEN_TIMEOUT})
+                                _LAST_IDLE_TIMEOUT_LOGGED_AT = now
+                            return ""
+                except Exception as exc:
+                    open_error = exc
+                    if candidate_index is not None:
+                        _invalidate_cached_microphone()
                         log_event(
                             source="stt",
-                            level="info",
-                            message="Đã calibrate ambient noise",
-                            payload={
-                                "duration": AMBIENT_NOISE_DURATION,
-                                "refresh_seconds": AMBIENT_NOISE_REFRESH_SECONDS,
-                            },
+                            level="warning",
+                            message="Mở microphone theo index thất bại, thử fallback default",
+                            payload={"mic_index": candidate_index, "error": repr(exc)},
                         )
-                elif DEBUG_VOICE:
-                    log_event(
-                        source="stt",
-                        level="info",
-                        message="Bo qua calibrate ambient noise vi con hieu luc",
-                        payload={
-                            "seconds_since_last_calibration": round(now - _LAST_AMBIENT_CALIBRATED_AT, 3),
-                            "refresh_seconds": AMBIENT_NOISE_REFRESH_SECONDS,
-                        },
-                    )
+                        continue
+                    raise
 
-                try:
-                    if is_assistant_speaking():
-                        time.sleep(max(0.01, VOICE_BLOCK_SLEEP_SECONDS))
-                        return ""
-
-                    audio = _recognizer.listen(
-                        source,
-                        timeout=LISTEN_TIMEOUT,
-                        phrase_time_limit=PHRASE_TIME_LIMIT,
-                    )
-                    if DEBUG_VOICE:
-                        log_event(source="stt", level="info", message="Đã thu được audio từ microphone", payload={"timeout": LISTEN_TIMEOUT, "phrase_time_limit": PHRASE_TIME_LIMIT})
-                except sr.WaitTimeoutError:
-                    now = time.time()
-                    if DEBUG_VOICE or (now - _LAST_IDLE_TIMEOUT_LOGGED_AT) >= max(1.0, STT_IDLE_LOG_INTERVAL_SECONDS):
-                        log_event(source="stt", level="info", message="Microphone đang chờ giọng nói", payload={"timeout": LISTEN_TIMEOUT})
-                        _LAST_IDLE_TIMEOUT_LOGGED_AT = now
-                    return ""
+            if open_error is not None:
+                raise open_error
 
         try:
             if is_assistant_speaking():

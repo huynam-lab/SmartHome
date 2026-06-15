@@ -1,7 +1,7 @@
 import { app } from "./core.js";
 import { fetchJson, setUnauthorizedHandler } from "./api.js";
 import { clearVoiceSendTimer, refreshMicrophonePermissionStatus, resetVoiceState, stopMic } from "./chat.js";
-import { closeAddCameraModal, closeAddDeviceModal, closeAddFunctionButtonModal, closeCameraControlPage, closeDeviceControlPage, closeDeviceScheduleModal, hydrateCachedDevices, loadDevices, loadIrTemplateOptions, closeIrLearnModal } from "./devices.js";
+import { closeAddDeviceModal, closeAddFunctionButtonModal, closeDeviceControlPage, closeDeviceScheduleModal, hydrateCachedDevices, loadDevices, loadIrTemplateOptions, closeIrLearnModal } from "./devices.js";
 import { initializeApp, pollEvents, prepareLockedShell, setupRealtime, stopRealtimeAndPolling } from "./realtime.js";
 import {
     clearPersistedChatHistory,
@@ -56,11 +56,9 @@ export function lockControlUi(message = "Vui lòng đăng nhập") {
     closeSettingsMenu();
     closePasswordModal();
     closeAddDeviceModal();
-    closeAddCameraModal();
     closeAddFunctionButtonModal();
     closeDeviceScheduleModal();
     closeDeviceControlPage({ navigate: false });
-    closeCameraControlPage({ navigate: false });
     closeIrLearnModal({ force: true });
     clearAuthFields();
     setAuthFeedback(message, "error");

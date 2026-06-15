@@ -3,19 +3,11 @@ import { bootstrapAuthentication, handleLogout, submitLogin, submitPasswordChang
 import { startMic, stopMic } from "./chat.js";
 import { stopMicrophoneTracks } from "../js/mic-permission.js";
 import {
-    closeAddCameraModal,
     closeAddDeviceModal,
     closeAddFunctionButtonModal,
-    closeCameraCenterPage,
-    closeCameraControlPage,
-    openCameraCenterPage,
-    openCameraControlPageFromCurrentRoute,
     restoreDeviceCenterScrollPosition,
-    restoreCameraCenterScrollPosition,
     runRouteTransitionWithLoading,
     closeSceneKeywordsModal,
-    openAddCameraModal,
-    openCurrentCameraEditModal,
     closeDeviceControlPage,
     closeDeviceScheduleModal,
     closeIrLearnModal as closeIrLearnForm,
@@ -28,7 +20,6 @@ import {
     openIrLearnModal,
     submitSceneKeywords,
     setDeviceScheduleAction,
-    submitAddCamera,
     submitAddFunctionButton,
     submitAddDevice,
     submitDeviceSchedule,
@@ -58,15 +49,6 @@ function bindEvents() {
     });
 
     app.dom.reloadBtnEl?.addEventListener("click", loadDevices);
-    app.dom.cameraCenterOpenBtnEl?.addEventListener("click", openCameraCenterPage);
-    app.dom.cameraCenterBackBtnEl?.addEventListener("click", closeCameraCenterPage);
-    app.dom.cameraAddTriggerBtnEl?.addEventListener("click", openAddCameraModal);
-    app.dom.cameraControlBackBtnEl?.addEventListener("click", closeCameraControlPage);
-    app.dom.cameraControlEditBtnEl?.addEventListener("click", openCurrentCameraEditModal);
-    app.dom.addCameraCloseBtnEl?.addEventListener("click", closeAddCameraModal);
-    app.dom.addCameraBackdropEl?.addEventListener("click", closeAddCameraModal);
-    app.dom.addCameraCancelBtnEl?.addEventListener("click", closeAddCameraModal);
-    app.dom.addCameraFormEl?.addEventListener("submit", submitAddCamera);
     app.dom.chatFormEl?.addEventListener("submit", (event) => event.preventDefault());
     app.dom.micBtnEl?.addEventListener("click", () => {
         startMic().catch((error) => {
@@ -135,7 +117,6 @@ function bindEvents() {
             closeDeviceMenus();
             closePasswordModal();
             closeAddDeviceModal();
-            closeAddCameraModal();
             closeAddFunctionButtonModal();
             closeDeviceScheduleModal();
             closeSceneKeywordsModal();
@@ -161,15 +142,10 @@ function bindEvents() {
     }, { passive: true });
 
     window.addEventListener("popstate", () => {
-        const previousView = app.state.currentView;
         runRouteTransitionWithLoading(null, () => {
             syncRouteFromLocation();
-            openCameraControlPageFromCurrentRoute({ renderOnly: true });
-            if (previousView === "camera-center" && app.state.currentView === "device-center") {
+            if (app.state.currentView === "device-center") {
                 restoreDeviceCenterScrollPosition();
-            }
-            if (previousView === "camera-control" && app.state.currentView === "camera-center") {
-                restoreCameraCenterScrollPosition();
             }
         });
     });
@@ -180,7 +156,6 @@ export function startApp() {
         window.history.scrollRestoration = "manual";
     }
     syncRouteFromLocation({ render: false });
-    openCameraControlPageFromCurrentRoute({ renderOnly: true });
     setAuthMode("login");
     updateIrSemanticForm();
     updateIrSignalTypeForm();
