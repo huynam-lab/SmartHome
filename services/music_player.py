@@ -1,583 +1,342 @@
-import json
-import os
-import shutil
-import socket
-import subprocess
-import threading
-import time
-from typing import Any, Dict, Optional
-
+import json, os, shutil, socket, subprocess, sys, threading, time
+from typing import Any, Dict, List, Optional
 from core.event_bus import log_event
 
-try:
-    import yt_dlp
-except Exception as exc:  # pragma: no cover
-    yt_dlp = None
-    _YT_DLP_IMPORT_ERROR = repr(exc)
-else:
-    _YT_DLP_IMPORT_ERROR = ""
-
-
 class MusicPlayer:
-    """Phát và điều khiển nhạc bằng mpv IPC trên Linux/Jetson."""
-
-    def __init__(
-        self,
-        socket_path: str = "/tmp/mpv_socket",
-        default_volume: int = 50,
-        command_timeout: float = 4.0,
-        startup_timeout: float = 8.0,
-        yt_timeout: float = 15.0,
-        autoplay_count: int = 5,
-        playlist_cache_ttl: float = 300.0,
-    ) -> None:
+    def __init__(self, socket_path="/tmp/mpv_socket", default_volume=50, command_timeout=4.0, startup_timeout=8.0, yt_timeout=15.0, autoplay_count=5, playlist_cache_ttl=300.0):
         self.socket_path = socket_path
         self.default_volume = self._clamp_volume(default_volume)
-        self.command_timeout = max(0.5, float(command_timeout))
-        self.startup_timeout = max(1.0, float(startup_timeout))
-        self.yt_timeout = max(3.0, float(yt_timeout))
+        self.command_timeout = max(.5, float(command_timeout))
+        self.startup_timeout = max(1., float(startup_timeout))
+        self.yt_timeout = max(3., float(yt_timeout))
         self.autoplay_count = max(1, int(autoplay_count))
-        self.playlist_cache_ttl = max(10.0, float(playlist_cache_ttl))
+        self.playlist_cache_ttl = max(10., float(playlist_cache_ttl))
+        self.python_path = sys.executable
+        self.deno_path = shutil.which("deno") or os.path.expanduser("~/.deno/bin/deno")
+        self.mpv_path = shutil.which("mpv") or "/usr/bin/mpv"
         self._lock = threading.Lock()
         self._process: Optional[subprocess.Popen] = None
+        self._yt_process: Optional[subprocess.Popen] = None
         self._current_query = ""
         self._current_title = ""
         self._current_source_url = ""
-        self._playlist_items: list[Dict[str, str]] = []
+        self._playlist_items: List[Dict[str, str]] = []
         self._playlist_cache: Dict[str, Dict[str, Any]] = {}
         self._volume = self.default_volume
         self._tts_duck_snapshot: Optional[Dict[str, Any]] = None
 
     def play(self, query: str) -> Dict[str, Any]:
-        clean_query = " ".join(str(query or "").split()).strip()
-        if not clean_query:
-            return self._error("Anh/chị nói rõ tên bài hát hoặc ca sĩ giúp em.")
-
+        query = " ".join(str(query or "").split()).strip()
+        if not query: return self._error("Anh/chị nói rõ tên bài hát hoặc ca sĩ giúp em.")
         with self._lock:
-            resolved = self._get_audio_playlist(clean_query)
-            if not resolved.get("ok"):
-                return resolved
+            resolved = self._get_audio_playlist(query)
+            if not resolved.get("ok"): return resolved
+            items = list(resolved.get("items") or [])
+            if not items: return self._error("Không tìm được nhạc trên YouTube.")
+            item = items[0]
+            source = str(item.get("webpage_url") or "").strip()
+            if not source: return self._error("Không lấy được nguồn nhạc từ YouTube.")
 
-            playlist_items = list(resolved.get("items") or [])
-            first_audio_url = str((playlist_items[0] or {}).get("audio_url") or "")
-            extra_audio_urls = [
-                str(item.get("audio_url") or "").strip()
-                for item in playlist_items[1:]
-                if str(item.get("audio_url") or "").strip()
-            ]
-
-            if self._has_active_player_unlocked():
-                play_result = self._replace_playlist_unlocked(first_audio_url, extra_audio_urls=extra_audio_urls)
-                if not play_result.get("ok"):
-                    return play_result
-            else:
-                start_result = self._start_player_unlocked(first_audio_url, extra_audio_urls=extra_audio_urls)
-                if not start_result.get("ok"):
-                    return start_result
-
-            self._current_query = clean_query
-            self._current_title = str((playlist_items[0] or {}).get("title") or clean_query).strip()
-            self._current_source_url = str((playlist_items[0] or {}).get("webpage_url") or "").strip()
-            self._playlist_items = [
-                {
-                    "title": str(item.get("title") or "").strip(),
-                    "webpage_url": str(item.get("webpage_url") or "").strip(),
-                }
-                for item in playlist_items
-            ]
-
-            return {
-                "ok": True,
-                "message": f"Dạ",
-                "data": {
-                    "query": self._current_query,
-                    "title": self._current_title,
-                    "webpage_url": self._current_source_url,
-                    "queue_length": len(self._playlist_items),
-                    "volume": self._volume,
-                    "paused": False,
-                    "is_playing": True,
-                },
-            }
+            self._stop_unlocked(True)
+            result = self._start_player_unlocked(source)
+            if not result.get("ok"): return result
+            self._current_query = query
+            self._current_title = str(item.get("title") or query).strip()
+            self._current_source_url = str(item.get("webpage_url") or "").strip()
+            self._playlist_items = [{"title": str(x.get("title") or "").strip(), "webpage_url": str(x.get("webpage_url") or "").strip()} for x in items]
+            return {"ok": True, "message": "Dạ", "data": {"query": query, "title": self._current_title, "webpage_url": self._current_source_url, "queue_length": len(items), "volume": self._volume, "paused": False, "is_playing": True}}
 
     def stop(self) -> Dict[str, Any]:
         with self._lock:
             if not self._has_active_player_unlocked():
                 self._cleanup_process_unlocked()
                 return self._error("Hiện chưa có nhạc đang phát.")
-
-            self._stop_unlocked(silent_if_missing=False)
-            return {
-                "ok": True,
-                "message": "Dạ",
-                "data": {
-                    "query": "",
-                    "title": "",
-                    "volume": self._volume,
-                    "paused": False,
-                    "is_playing": False,
-                },
-            }
+            self._stop_unlocked(False)
+            return {"ok": True, "message": "Dạ", "data": {"query": "", "title": "", "volume": self._volume, "paused": False, "is_playing": False}}
 
     def pause(self) -> Dict[str, Any]:
         with self._lock:
-            if not self._has_active_player_unlocked():
-                return self._error("Hiện chưa có nhạc đang phát.")
-
-            result = self._send_command_unlocked({"command": ["set_property", "pause", True]})
-            if not result.get("ok"):
-                return self._error("Em chưa tạm dừng được nhạc.", data=self._build_status_unlocked())
-
-            return {
-                "ok": True,
-                "message": "Em đã tạm dừng nhạc.",
-                "data": self._build_status_unlocked(),
-            }
+            if not self._has_active_player_unlocked(): return self._error("Hiện chưa có nhạc đang phát.")
+            r = self._send_command_unlocked({"command": ["set_property", "pause", True]})
+            return {"ok": True, "message": "Em đã tạm dừng nhạc.", "data": self._build_status_unlocked()} if r.get("ok") else self._error("Em chưa tạm dừng được nhạc.")
 
     def resume(self) -> Dict[str, Any]:
         with self._lock:
-            if not self._has_active_player_unlocked():
-                return self._error("Hiện chưa có nhạc đang phát.")
+            if not self._has_active_player_unlocked(): return self._error("Hiện chưa có nhạc đang phát.")
+            r = self._send_command_unlocked({"command": ["set_property", "pause", False]})
+            return {"ok": True, "message": "Em đã phát tiếp nhạc.", "data": self._build_status_unlocked()} if r.get("ok") else self._error("Em chưa phát tiếp được nhạc.")
 
-            result = self._send_command_unlocked({"command": ["set_property", "pause", False]})
-            if not result.get("ok"):
-                return self._error("Em chưa phát tiếp được nhạc.", data=self._build_status_unlocked())
-
-            return {
-                "ok": True,
-                "message": "Em đã phát tiếp nhạc.",
-                "data": self._build_status_unlocked(),
-            }
-
-    def volume_up(self, step: int = 10) -> Dict[str, Any]:
+    def volume_up(self, step=10) -> Dict[str, Any]:
         with self._lock:
-            if not self._has_active_player_unlocked():
-                return self._error("Hiện chưa có nhạc đang phát.")
+            if not self._has_active_player_unlocked(): return self._error("Hiện chưa có nhạc đang phát.")
+            return self._set_volume_unlocked(self._clamp_volume(self._get_volume_unlocked() + max(1, int(step or 10))), "Em đã tăng âm lượng lên")
 
-            current_volume = self._get_volume_unlocked()
-            new_volume = self._clamp_volume(current_volume + max(1, int(step or 10)))
-            return self._set_volume_unlocked(new_volume, success_prefix="Em đã tăng âm lượng lên")
-
-    def volume_down(self, step: int = 10) -> Dict[str, Any]:
+    def volume_down(self, step=10) -> Dict[str, Any]:
         with self._lock:
-            if not self._has_active_player_unlocked():
-                return self._error("Hiện chưa có nhạc đang phát.")
+            if not self._has_active_player_unlocked(): return self._error("Hiện chưa có nhạc đang phát.")
+            return self._set_volume_unlocked(self._clamp_volume(self._get_volume_unlocked() - max(1, int(step or 10))), "Em đã giảm âm lượng xuống")
 
-            current_volume = self._get_volume_unlocked()
-            new_volume = self._clamp_volume(current_volume - max(1, int(step or 10)))
-            return self._set_volume_unlocked(new_volume, success_prefix="Em đã giảm âm lượng xuống")
-
-    def set_volume(self, value: int = 50) -> Dict[str, Any]:
+    def set_volume(self, value=50) -> Dict[str, Any]:
         with self._lock:
-            if not self._has_active_player_unlocked():
-                return self._error("Hiện chưa có nhạc đang phát.")
-            return self._set_volume_unlocked(self._clamp_volume(value), success_prefix="Em đã đặt âm lượng ở mức")
+            if not self._has_active_player_unlocked(): return self._error("Hiện chưa có nhạc đang phát.")
+            return self._set_volume_unlocked(self._clamp_volume(value), "Em đã đặt âm lượng ở mức")
 
     def status(self) -> Dict[str, Any]:
-        with self._lock:
-            return self._build_status_unlocked()
+        with self._lock: return self._build_status_unlocked()
 
     def is_playing(self) -> bool:
-        with self._lock:
-            status = self._build_status_unlocked()
-            return bool(status.get("is_playing"))
+        with self._lock: return bool(self._build_status_unlocked().get("is_playing"))
 
-    def send_command(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        with self._lock:
-            return self._send_command_unlocked(payload)
+    def send_command(self, payload) -> Dict[str, Any]:
+        with self._lock: return self._send_command_unlocked(payload)
 
-    def duck_for_tts(self, step_delay: float = 0.06, step_size: int = 8) -> Dict[str, Any]:
+    def duck_for_tts(self, step_delay=.06, step_size=8) -> Dict[str, Any]:
         with self._lock:
             status = self._build_status_unlocked()
             if not status.get("is_running"):
                 self._tts_duck_snapshot = None
                 return {"ok": True, "message": "Không có nhạc để giảm khi TTS phát.", "data": status}
-
-            current_volume = self._get_volume_unlocked()
-            was_paused = bool(status.get("paused"))
-            self._tts_duck_snapshot = {
-                "volume": current_volume,
-                "was_paused": was_paused,
-            }
-
-            if current_volume > 0:
-                self._fade_volume_unlocked(start=current_volume, end=0, step_size=step_size, step_delay=step_delay)
-
-            if not was_paused:
-                self._send_command_unlocked({"command": ["set_property", "pause", True]})
-
+            volume, paused = self._get_volume_unlocked(), bool(status.get("paused"))
+            self._tts_duck_snapshot = {"volume": volume, "was_paused": paused}
+            if volume > 0: self._fade_volume_unlocked(volume, 0, step_size, step_delay)
+            if not paused: self._send_command_unlocked({"command": ["set_property", "pause", True]})
             return {"ok": True, "message": "Đã giảm nhạc cho TTS.", "data": self._build_status_unlocked()}
 
-    def restore_after_tts(self, step_delay: float = 0.06, step_size: int = 8) -> Dict[str, Any]:
+    def restore_after_tts(self, step_delay=.06, step_size=8) -> Dict[str, Any]:
         with self._lock:
-            snapshot = self._tts_duck_snapshot
+            snap = self._tts_duck_snapshot
             self._tts_duck_snapshot = None
-            if not snapshot:
-                return {"ok": True, "message": "Không có nhạc cần khôi phục sau TTS.", "data": self._build_status_unlocked()}
-
-            if not self._has_active_player_unlocked():
-                return {"ok": True, "message": "Player nhạc không còn chạy sau TTS.", "data": self._build_status_unlocked()}
-
-            target_volume = self._clamp_volume(snapshot.get("volume", self._volume))
-            was_paused = bool(snapshot.get("was_paused"))
-
-            if was_paused:
-                self._send_command_unlocked({"command": ["set_property", "volume", target_volume]})
-                self._volume = target_volume
+            if not snap: return {"ok": True, "message": "Không có nhạc cần khôi phục sau TTS.", "data": self._build_status_unlocked()}
+            if not self._has_active_player_unlocked(): return {"ok": True, "message": "Player nhạc không còn chạy sau TTS.", "data": self._build_status_unlocked()}
+            target, paused = self._clamp_volume(snap.get("volume", self._volume)), bool(snap.get("was_paused"))
+            if paused:
+                self._send_command_unlocked({"command": ["set_property", "volume", target]}); self._volume = target
             else:
                 self._send_command_unlocked({"command": ["set_property", "pause", False]})
-                self._send_command_unlocked({"command": ["set_property", "volume", 0]})
-                self._volume = 0
-                self._fade_volume_unlocked(start=0, end=target_volume, step_size=step_size, step_delay=step_delay)
-
+                self._send_command_unlocked({"command": ["set_property", "volume", 0]}); self._volume = 0
+                self._fade_volume_unlocked(0, target, step_size, step_delay)
             return {"ok": True, "message": "Đã khôi phục nhạc sau TTS.", "data": self._build_status_unlocked()}
 
+    def _yt_base_cmd(self) -> List[str]:
+        return [self.python_path, "-m", "yt_dlp", "--js-runtimes", f"deno:{self.deno_path}", "--extractor-args", "youtube:player_client=web_embedded"]
+
     def _get_audio_playlist(self, query: str) -> Dict[str, Any]:
-        if yt_dlp is None:
-            return self._error(
-                "Chưa có thư viện yt-dlp để phát nhạc.",
-                data={"hint": "python3 -m pip install yt-dlp", "error": _YT_DLP_IMPORT_ERROR},
-            )
-
-        search_query = " ".join(str(query or "").split()).strip() or "nhạc hot"
-        cache_key = search_query.lower()
-        cached = self._playlist_cache.get(cache_key)
-        now = time.time()
-        if cached and now - float(cached.get("saved_at", 0.0)) <= self.playlist_cache_ttl:
+        query = " ".join(str(query or "").split()).strip() or "nhạc hot"
+        key, now = query.lower(), time.time()
+        cached = self._playlist_cache.get(key)
+        if cached and now - float(cached.get("saved_at", 0)) <= self.playlist_cache_ttl:
             items = list(cached.get("items") or [])
-            if items:
-                self._log("info", "playlist cache hit", {"query": search_query, "count": len(items)})
-                return {"ok": True, "items": items}
+            if items: return {"ok": True, "items": items}
 
-        ydl_options = {
-            "quiet": True,
-            "no_warnings": True,
-            "skip_download": True,
-            "noplaylist": True,
-            "default_search": f"ytsearch{self.autoplay_count}",
-            "socket_timeout": self.yt_timeout,
-            "format": "bestaudio/best",
-        }
-
+        cmd = self._yt_base_cmd() + ["--skip-download", "--flat-playlist", "--dump-single-json", f"ytsearch{self.autoplay_count}:{query}"]
         try:
-            with yt_dlp.YoutubeDL(ydl_options) as ydl:
-                info = ydl.extract_info(f"ytsearch{self.autoplay_count}:{search_query}", download=False)
+            r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=self.yt_timeout)
+            if r.returncode != 0: raise RuntimeError(r.stderr.strip())
+            info = json.loads(r.stdout)
         except Exception as exc:
-            self._log("error", "yt-dlp search failed", {"query": search_query, "error": repr(exc)})
+            self._log("error", "yt-dlp search failed", {"query": query, "error": repr(exc)})
             return self._error("Không tìm được nhạc trên YouTube.")
 
-        entries = []
-        if isinstance(info, dict) and info.get("entries"):
-            entries = [item for item in info.get("entries") or [] if isinstance(item, dict)]
-        elif isinstance(info, dict):
-            entries = [info]
+        items = []
+        for e in info.get("entries") or []:
+            if not isinstance(e, dict): continue
+            video_id = str(e.get("id") or "").strip()
+            url = str(e.get("webpage_url") or "").strip() or (f"https://www.youtube.com/watch?v={video_id}" if video_id else "")
+            if url: items.append({"title": str(e.get("title") or query).strip(), "webpage_url": url})
+        if not items: return self._error("Không tìm được nhạc trên YouTube.")
 
-        if not entries:
-            return self._error("Không tìm được nhạc trên YouTube.")
+        self._playlist_cache[key] = {"saved_at": now, "items": items}
+        self._log("info", "resolved playlist", {"query": query, "count": len(items), "first_title": items[0]["title"]})
+        return {"ok": True, "items": items}
 
-        playlist_items = []
-        for entry in entries:
-            audio_url = (
-                entry.get("url")
-                or (((entry.get("requested_formats") or [{}])[0]).get("url"))
-                or (((entry.get("formats") or [{}])[-1]).get("url") if entry.get("formats") else "")
-            )
-            if not audio_url:
-                continue
-            playlist_items.append({
-                "audio_url": str(audio_url).strip(),
-                "title": str(entry.get("title") or search_query).strip(),
-                "webpage_url": str(entry.get("webpage_url") or entry.get("original_url") or "").strip(),
-            })
+    def _start_player_unlocked(self, source: str, extra_audio_urls=None) -> Dict[str, Any]:
+        if not os.path.isfile(self.deno_path): return self._error("Chưa tìm thấy Deno.")
+        if not os.path.isfile(self.mpv_path): return self._error("Chưa có mpv để phát nhạc.")
 
-        if not playlist_items:
-            return self._error("Không lấy được luồng audio từ YouTube.")
+        self._cleanup_socket_unlocked(True)
 
-        self._log(
-            "info",
-            "resolved audio playlist",
-            {"query": search_query, "count": len(playlist_items), "first_title": playlist_items[0]["title"]},
-        )
-        self._playlist_cache[cache_key] = {
-            "saved_at": now,
-            "items": list(playlist_items),
-        }
-        return {
-            "ok": True,
-            "items": playlist_items,
-        }
+        yt_cmd = self._yt_base_cmd() + [
+            "--no-playlist",
+            "-f", "bestaudio/best",
+            "-o", "-",
+            source
+        ]
 
-    def _build_status_unlocked(self) -> Dict[str, Any]:
-        active = self._has_active_player_unlocked()
-        paused = False
-        volume = self._volume
-
-        if active:
-            pause_result = self._send_command_unlocked({"command": ["get_property", "pause"]})
-            if pause_result.get("ok"):
-                paused = bool(pause_result.get("data"))
-
-            volume_result = self._send_command_unlocked({"command": ["get_property", "volume"]})
-            if volume_result.get("ok"):
-                try:
-                    volume = self._clamp_volume(volume_result.get("data"))
-                    self._volume = volume
-                except Exception:
-                    volume = self._volume
-
-        return {
-            "ok": True,
-            "is_running": active,
-            "is_playing": active and not paused,
-            "paused": paused,
-            "query": self._current_query,
-            "title": self._current_title,
-            "volume": volume,
-            "source_url": self._current_source_url,
-            "queue_length": len(self._playlist_items),
-        }
-
-    def _set_volume_unlocked(self, value: int, success_prefix: str) -> Dict[str, Any]:
-        result = self._send_command_unlocked({"command": ["set_property", "volume", value]})
-        if not result.get("ok"):
-            return self._error("Em chưa chỉnh được âm lượng.", data=self._build_status_unlocked())
-
-        self._volume = self._clamp_volume(value)
-        status = self._build_status_unlocked()
-        return {
-            "ok": True,
-            "message": f"{success_prefix} {status.get('volume')} phần trăm.",
-            "data": status,
-        }
-
-    def _fade_volume_unlocked(self, start: int, end: int, step_size: int, step_delay: float) -> None:
-        current = self._clamp_volume(start)
-        target = self._clamp_volume(end)
-        step = max(1, int(step_size or 1))
-        delay = max(0.0, float(step_delay))
-
-        if current == target:
-            self._send_command_unlocked({"command": ["set_property", "volume", target]})
-            self._volume = target
-            return
-
-        direction = 1 if target > current else -1
-        value = current
-        while value != target:
-            next_value = value + direction * step
-            if direction > 0:
-                next_value = min(next_value, target)
-            else:
-                next_value = max(next_value, target)
-            self._send_command_unlocked({"command": ["set_property", "volume", next_value]})
-            self._volume = next_value
-            value = next_value
-            if delay > 0:
-                time.sleep(delay)
-
-    def _get_volume_unlocked(self) -> int:
-        result = self._send_command_unlocked({"command": ["get_property", "volume"]})
-        if result.get("ok"):
-            try:
-                self._volume = self._clamp_volume(result.get("data"))
-            except Exception:
-                pass
-        return self._volume
-
-    def _has_active_player_unlocked(self) -> bool:
-        self._cleanup_process_unlocked()
-        return self._process is not None and self._process.poll() is None and os.path.exists(self.socket_path)
-
-    def _start_player_unlocked(self, audio_url: str, extra_audio_urls: Optional[list[str]] = None) -> Dict[str, Any]:
-        if not shutil.which("mpv"):
-            return self._error("Chưa có mpv để phát nhạc.", data={"hint": "sudo apt install mpv"})
-
-        self._cleanup_socket_unlocked(force=True)
-        command = [
-            "mpv",
+        mpv_cmd = [
+            self.mpv_path,
             "--no-video",
-            "--really-quiet",
+            "--cache=yes",
+            "--cache-secs=1",
             "--idle=no",
             f"--input-ipc-server={self.socket_path}",
             f"--volume={self._volume}",
-            audio_url,
+            "-"
         ]
-        for extra_url in list(extra_audio_urls or []):
-            if extra_url:
-                command.append(extra_url)
 
         try:
-            self._process = subprocess.Popen(
-                command,
+            self._yt_process = subprocess.Popen(
+                yt_cmd,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
+                stderr=subprocess.DEVNULL
             )
-        except Exception as exc:
-            self._process = None
-            self._log("error", "mpv start failed", {"command": command, "error": repr(exc)})
-            return self._error("Không khởi chạy được mpv để phát nhạc.")
 
-        deadline = time.time() + self.startup_timeout
+            self._process = subprocess.Popen(
+                mpv_cmd,
+                stdin=self._yt_process.stdout,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+
+            if self._yt_process.stdout:
+                self._yt_process.stdout.close()
+
+        except Exception as exc:
+            self._stop_process_only_unlocked()
+            return self._error(
+                "Không khởi chạy được luồng phát nhạc.",
+                {"error": repr(exc)}
+            )
+
+        deadline = time.time() + 5
+
         while time.time() < deadline:
             if self._process.poll() is not None:
-                stderr_text = ""
-                try:
-                    _, stderr_text = self._process.communicate(timeout=0.2)
-                except Exception:
-                    stderr_text = ""
-                self._cleanup_process_unlocked()
-                self._log("error", "mpv exited before ipc ready", {"stderr": stderr_text.strip()})
+                self._stop_process_only_unlocked()
                 return self._error("mpv không khởi động thành công.")
 
+            if self._yt_process and self._yt_process.poll() is not None:
+                self._stop_process_only_unlocked()
+                return self._error("Không lấy được audio từ YouTube.")
+
             if os.path.exists(self.socket_path):
-                ping = self._send_command_unlocked({"command": ["get_property", "pause"]})
-                if ping.get("ok"):
+                r = self._send_command_unlocked(
+                    {"command": ["get_property", "pause"]}
+                )
+                if r.get("ok"):
                     return {"ok": True}
-            time.sleep(0.05)
+
+            time.sleep(.03)
 
         self._stop_process_only_unlocked()
-        self._cleanup_socket_unlocked(force=True)
-        return self._error("Hết thời gian chờ mpv sẵn sàng.")
+        self._cleanup_socket_unlocked(True)
+        return self._error("mpv không phản hồi.")
 
-    def _replace_playlist_unlocked(self, audio_url: str, extra_audio_urls: Optional[list[str]] = None) -> Dict[str, Any]:
-        if not audio_url:
-            return self._error("Không có nguồn audio để phát.")
 
-        result = self._send_command_unlocked({"command": ["loadfile", audio_url, "replace"]})
-        if not result.get("ok"):
-            return self._error("Không đổi được bài hát trên player nhạc.")
+    def _replace_playlist_unlocked(self, query: str, extra_audio_urls=None) -> Dict[str, Any]:
+        self._stop_process_only_unlocked(); self._cleanup_socket_unlocked(True)
+        return self._start_player_unlocked(query)
 
-        for extra_url in list(extra_audio_urls or []):
-            if not extra_url:
-                continue
-            append_result = self._send_command_unlocked({"command": ["loadfile", extra_url, "append-play"]})
-            if not append_result.get("ok"):
-                self._log("warning", "failed to append playlist item", {"audio_url": extra_url})
+    def _build_status_unlocked(self) -> Dict[str, Any]:
+        active, paused, volume = self._has_active_player_unlocked(), False, self._volume
+        if active:
+            r = self._send_command_unlocked({"command": ["get_property", "pause"]})
+            if r.get("ok"): paused = bool(r.get("data"))
+            r = self._send_command_unlocked({"command": ["get_property", "volume"]})
+            if r.get("ok"):
+                try: volume = self._clamp_volume(r.get("data")); self._volume = volume
+                except Exception: pass
+        return {"ok": True, "is_running": active, "is_playing": active and not paused, "paused": paused, "query": self._current_query, "title": self._current_title, "volume": volume, "source_url": self._current_source_url, "queue_length": len(self._playlist_items)}
 
-        self._send_command_unlocked({"command": ["set_property", "pause", False]})
-        return {"ok": True}
+    def _set_volume_unlocked(self, value, success_prefix):
+        r = self._send_command_unlocked({"command": ["set_property", "volume", value]})
+        if not r.get("ok"): return self._error("Em chưa chỉnh được âm lượng.", self._build_status_unlocked())
+        self._volume = self._clamp_volume(value)
+        status = self._build_status_unlocked()
+        return {"ok": True, "message": f"{success_prefix} {status.get('volume')} phần trăm.", "data": status}
 
-    def _stop_unlocked(self, silent_if_missing: bool) -> Dict[str, Any]:
-        had_player = self._has_active_player_unlocked()
-        if had_player:
-            self._send_command_unlocked({"command": ["quit-watch-later"]})
-            deadline = time.time() + 2.5
-            while time.time() < deadline:
-                if not self._has_active_player_unlocked():
-                    break
-                time.sleep(0.1)
-
-        self._stop_process_only_unlocked()
-        self._cleanup_socket_unlocked(force=True)
-        self._current_query = ""
-        self._current_title = ""
-        self._current_source_url = ""
-        self._playlist_items = []
-
-        if had_player or silent_if_missing:
-            return {"ok": True}
-        return self._error("Hiện chưa có nhạc đang phát.")
-
-    def _stop_process_only_unlocked(self) -> None:
-        if self._process is None:
+    def _fade_volume_unlocked(self, start, end, step_size, step_delay):
+        current, target, step = self._clamp_volume(start), self._clamp_volume(end), max(1, int(step_size or 1))
+        if current == target:
+            self._send_command_unlocked({"command": ["set_property", "volume", target]}); self._volume = target
             return
+        direction = 1 if target > current else -1
+        while current != target:
+            current = min(current + step, target) if direction > 0 else max(current - step, target)
+            self._send_command_unlocked({"command": ["set_property", "volume", current]}); self._volume = current
+            if step_delay > 0: time.sleep(step_delay)
 
-        process = self._process
-        if process.poll() is None:
-            try:
-                process.terminate()
-                process.wait(timeout=2.0)
-            except Exception:
-                try:
-                    process.kill()
-                    process.wait(timeout=1.0)
-                except Exception:
-                    pass
-        self._process = None
+    def _get_volume_unlocked(self):
+        r = self._send_command_unlocked({"command": ["get_property", "volume"]})
+        if r.get("ok"):
+            try: self._volume = self._clamp_volume(r.get("data"))
+            except Exception: pass
+        return self._volume
 
-    def _cleanup_process_unlocked(self) -> None:
-        if self._process is not None and self._process.poll() is not None:
-            self._process = None
-            self._cleanup_socket_unlocked(force=True)
-            self._current_query = ""
-            self._current_title = ""
-            self._current_source_url = ""
-            self._playlist_items = []
-            self._tts_duck_snapshot = None
-
-    def _cleanup_socket_unlocked(self, force: bool = False) -> None:
-        if not os.path.exists(self.socket_path):
-            return
-
-        if not force and self._process is not None and self._process.poll() is None:
-            return
-
-        try:
-            os.remove(self.socket_path)
-        except FileNotFoundError:
-            return
-        except Exception as exc:
-            self._log("warning", "failed to remove stale mpv socket", {"error": repr(exc), "socket_path": self.socket_path})
-
-    def _send_command_unlocked(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def _has_active_player_unlocked(self):
         self._cleanup_process_unlocked()
+        return self._process is not None and self._process.poll() is None and os.path.exists(self.socket_path)
+
+    def _stop_unlocked(self, silent_if_missing=False):
+        had = self._has_active_player_unlocked()
+        if had: self._send_command_unlocked({"command": ["quit"]})
+        self._stop_process_only_unlocked(); self._cleanup_socket_unlocked(True)
+        self._current_query = self._current_title = self._current_source_url = ""
+        self._playlist_items = []; self._tts_duck_snapshot = None
+        return {"ok": True} if had or silent_if_missing else self._error("Hiện chưa có nhạc đang phát.")
+
+    def _stop_process_only_unlocked(self):
+        for name in ("_process", "_yt_process"):
+            p = getattr(self, name, None)
+            if p and p.poll() is None:
+                try: p.terminate(); p.wait(timeout=1.5)
+                except Exception:
+                    try: p.kill(); p.wait(timeout=.5)
+                    except Exception: pass
+            setattr(self, name, None)
+
+    def _cleanup_process_unlocked(self):
+        if self._process is not None and self._process.poll() is not None:
+            self._stop_process_only_unlocked(); self._cleanup_socket_unlocked(True)
+            self._current_query = self._current_title = self._current_source_url = ""
+            self._playlist_items = []; self._tts_duck_snapshot = None
+
+    def _cleanup_socket_unlocked(self, force=False):
+        if not os.path.exists(self.socket_path): return
+        if not force and self._process is not None and self._process.poll() is None: return
+        try: os.remove(self.socket_path)
+        except FileNotFoundError: pass
+        except Exception as exc: self._log("warning", "failed to remove stale mpv socket", {"error": repr(exc), "socket_path": self.socket_path})
+
+    def _send_command_unlocked(self, payload):
         if not self._process or self._process.poll() is not None or not os.path.exists(self.socket_path):
             return self._error("Hiện chưa có player nhạc đang chạy.")
-
-        raw_response = b""
-        client: Optional[socket.socket] = None
+        raw, client = b"", None
         try:
             client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            client.settimeout(self.command_timeout)
-            client.connect(self.socket_path)
+            client.settimeout(self.command_timeout); client.connect(self.socket_path)
             client.sendall((json.dumps(payload, ensure_ascii=True) + "\n").encode("utf-8"))
-
-            while not raw_response.endswith(b"\n"):
+            while not raw.endswith(b"\n"):
                 chunk = client.recv(4096)
-                if not chunk:
-                    break
-                raw_response += chunk
+                if not chunk: break
+                raw += chunk
         except Exception as exc:
             self._log("warning", "mpv ipc command failed", {"payload": payload, "error": repr(exc)})
             return self._error("Không gửi được lệnh tới player nhạc.")
         finally:
-            if client is not None:
-                try:
-                    client.close()
-                except Exception:
-                    pass
+            if client:
+                try: client.close()
+                except Exception: pass
 
-        if not raw_response:
-            return self._error("Player nhạc không phản hồi.")
-
-        try:
-            decoded = json.loads(raw_response.decode("utf-8").strip())
+        if not raw: return self._error("Player nhạc không phản hồi.")
+        try: data = json.loads(raw.decode("utf-8").strip())
         except Exception as exc:
-            self._log("warning", "invalid mpv ipc response", {"payload": payload, "raw_response": raw_response.decode("utf-8", "ignore"), "error": repr(exc)})
+            self._log("warning", "invalid mpv ipc response", {"payload": payload, "error": repr(exc)})
             return self._error("Phản hồi từ player nhạc không hợp lệ.")
-
-        if decoded.get("error") not in {"success", None}:
-            return self._error("Player nhạc trả về lỗi.", data=decoded)
-
-        return {"ok": True, "data": decoded.get("data"), "raw": decoded}
+        if data.get("error") not in ("success", None): return self._error("Player nhạc trả về lỗi.", data)
+        return {"ok": True, "data": data.get("data"), "raw": data}
 
     @staticmethod
-    def _clamp_volume(value: Any) -> int:
-        try:
-            return max(0, min(100, int(round(float(value)))))
-        except Exception:
-            return 50
+    def _clamp_volume(value):
+        try: return max(0, min(100, int(round(float(value)))))
+        except Exception: return 50
 
-    def _error(self, message: str, data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def _error(self, message, data=None):
         return {"ok": False, "message": message, "data": data or {}}
 
-    def _log(self, level: str, message: str, payload: Optional[Dict[str, Any]] = None) -> None:
+    def _log(self, level, message, payload=None):
         log_event(source="music-player", level=level, message=message, payload=payload or {})
 
-
 _MUSIC_PLAYER = MusicPlayer()
-
 
 def get_music_player() -> MusicPlayer:
     return _MUSIC_PLAYER

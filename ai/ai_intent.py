@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from ai.realtime_intent import parse_realtime_intent
+from ai.api_key_manager import get_gemini_key_manager
 from config import (
     CHAT_FALLBACK_TEXT,
     DEVICE_LATITUDE,
@@ -36,6 +37,7 @@ _request_lock = threading.Lock()
 _request_timestamps = deque()
 _client_lock = threading.Lock()
 _client_cache = None
+_cached_client_key = None  # Track which key the cached client was built with
 _weather_cache_lock = threading.Lock()
 _weather_cache: Dict[str, Any] = {"timestamp": 0.0, "data": None}
 _geocode_cache_lock = threading.Lock()
@@ -149,27 +151,37 @@ def _wait_for_rpm_slot() -> None:
 
 
 def build_gemini_client() -> Optional[Any]:
-    if not GEMINI_API_KEY:
+    """Build Gemini client with support for API key rotation."""
+    key_manager = get_gemini_key_manager()
+    current_key = key_manager.get_current_key()
+
+    if not current_key:
         _log("Thiếu GEMINI_API_KEY")
         return None
 
-    global _client_cache
-    if _client_cache is not None:
-        return _client_cache
+    global _client_cache, _cached_client_key
 
+    # Return cached client if it's using the same key
     with _client_lock:
-        if _client_cache is not None:
+        if _client_cache is not None and _cached_client_key == current_key:
             return _client_cache
+
+        # Key has changed or cache is empty - invalidate cache
+        _client_cache = None
+        _cached_client_key = None
 
         try:
             from google import genai
 
-            _client_cache = genai.Client(api_key=GEMINI_API_KEY)
+            _client_cache = genai.Client(api_key=current_key)
+            _cached_client_key = current_key
+            
+            key_index = key_manager.active_key_index
             log_event(
                 source="gemini",
                 level="success",
-                message="Đã khởi tạo Gemini client",
-                payload={"model": GEMINI_MODEL},
+                message=f"Đã khởi tạo Gemini client (API Key #{key_index})",
+                payload={"model": GEMINI_MODEL, "key_index": key_index},
             )
             return _client_cache
         except Exception as exc:
@@ -196,112 +208,133 @@ def _generate_with_gemini(
     temperature: float = 0.2,
     max_output_tokens: int = 220,
 ) -> Dict[str, Any]:
-    client = build_gemini_client()
-    if not client:
-        return {"text": "", "finish_reason": "", "usage_metadata": {}}
+    """Generate content using Gemini API with automatic key rotation on rate limit."""
+    key_manager = get_gemini_key_manager()
+    max_retries = 1 if key_manager.secondary_key else 0
+    retry_count = 0
 
-    _wait_for_rpm_slot()
+    while retry_count <= max_retries:
+        client = build_gemini_client()
+        if not client:
+            return {"text": "", "finish_reason": "", "usage_metadata": {}}
 
-    result_holder: Dict[str, Any] = {}
-    error_holder: Dict[str, Any] = {}
+        _wait_for_rpm_slot()
 
-    def _worker() -> None:
-        try:
-            response = client.models.generate_content(
-                model=GEMINI_MODEL,
-                contents=prompt,
-                config={
-                    "temperature": temperature,
-                    "max_output_tokens": max_output_tokens,
-                },
-            )
-            result_holder["response"] = response
-        except Exception as exc:
-            error_holder["error"] = exc
+        result_holder: Dict[str, Any] = {}
+        error_holder: Dict[str, Any] = {}
 
-    started_at = time.time()
-    worker = threading.Thread(target=_worker, daemon=True)
-    worker.start()
-    worker.join(timeout=max(1.0, float(GEMINI_TIMEOUT_SECONDS)))
-    latency_ms = int((time.time() - started_at) * 1000)
+        def _worker() -> None:
+            try:
+                response = client.models.generate_content(
+                    model=GEMINI_MODEL,
+                    contents=prompt,
+                    config={
+                        "temperature": temperature,
+                        "max_output_tokens": max_output_tokens,
+                    },
+                )
+                result_holder["response"] = response
+            except Exception as exc:
+                error_holder["error"] = exc
 
-    if worker.is_alive():
-        log_event(
-            source="gemini",
-            level="error",
-            message="Gemini timeout",
-            payload={
-                "timeout_seconds": GEMINI_TIMEOUT_SECONDS,
-                "model": GEMINI_MODEL,
-                "max_output_tokens": max_output_tokens,
-                "latency_ms": latency_ms,
-            },
-        )
-        return {"text": "", "finish_reason": "TIMEOUT", "usage_metadata": {}, "latency_ms": latency_ms}
+        started_at = time.time()
+        worker = threading.Thread(target=_worker, daemon=True)
+        worker.start()
+        worker.join(timeout=max(1.0, float(GEMINI_TIMEOUT_SECONDS)))
+        latency_ms = int((time.time() - started_at) * 1000)
 
-    if "error" in error_holder:
-        exc = error_holder["error"]
-        log_event(
-            source="gemini",
-            level="error",
-            message="Lỗi gọi Gemini",
-            payload={
-                "model": GEMINI_MODEL,
-                "max_output_tokens": max_output_tokens,
-                "latency_ms": latency_ms,
-                "error": repr(exc),
-                "exception_type": type(exc).__name__,
-                "exception_message": str(exc),
-            },
-        )
-        return {"text": "", "finish_reason": "", "usage_metadata": {}, "latency_ms": latency_ms}
-
-    try:
-        response = result_holder.get("response")
-        _log(f"Raw response type: {type(response)}")
-        text = _extract_response_text(response)
-        finish_reason = _extract_finish_reason(response)
-        usage_metadata = _extract_usage_metadata(response)
-        _log(
-            f"Gemini finish_reason={finish_reason or 'unknown'} "
-            f"usage={usage_metadata or {}} latency_ms={latency_ms} "
-            f"tokens={max_output_tokens}"
-        )
-        _log(f"Gemini text: {text!r}")
-        if finish_reason and str(finish_reason).strip().upper() in {"MAX_TOKENS", "SAFETY", "RECITATION", "OTHER"}:
+        if worker.is_alive():
             log_event(
                 source="gemini",
-                level="warning",
-                message="Gemini response có dấu hiệu chưa hoàn chỉnh",
+                level="error",
+                message="Gemini timeout",
                 payload={
-                    "finish_reason": finish_reason,
+                    "timeout_seconds": GEMINI_TIMEOUT_SECONDS,
                     "model": GEMINI_MODEL,
                     "max_output_tokens": max_output_tokens,
                     "latency_ms": latency_ms,
-                    "text_preview": (text or "")[:300],
-                    "usage_metadata": usage_metadata,
+                    "retry_count": retry_count,
                 },
             )
-        return {
-            "text": (text or "").strip(),
-            "finish_reason": finish_reason,
-            "usage_metadata": usage_metadata,
-            "latency_ms": latency_ms,
-        }
-    except Exception as exc:
-        log_event(
-            source="gemini",
-            level="error",
-            message="Lỗi parse response Gemini",
-            payload={
-                "model": GEMINI_MODEL,
+            return {"text": "", "finish_reason": "TIMEOUT", "usage_metadata": {}, "latency_ms": latency_ms}
+
+        if "error" in error_holder:
+            exc = error_holder["error"]
+            
+            # Check if this is a rate limit error and we can retry with backup key
+            if retry_count < max_retries:
+                key_rotated = key_manager.report_error(exc)
+                if key_rotated:
+                    _log(f"Retrying with backup API key (attempt {retry_count + 1}/{max_retries})")
+                    retry_count += 1
+                    continue
+            
+            log_event(
+                source="gemini",
+                level="error",
+                message="Lỗi gọi Gemini",
+                payload={
+                    "model": GEMINI_MODEL,
+                    "max_output_tokens": max_output_tokens,
+                    "latency_ms": latency_ms,
+                    "error": repr(exc),
+                    "exception_type": type(exc).__name__,
+                    "exception_message": str(exc),
+                    "retry_count": retry_count,
+                },
+            )
+            return {"text": "", "finish_reason": "", "usage_metadata": {}, "latency_ms": latency_ms}
+
+        try:
+            response = result_holder.get("response")
+            _log(f"Raw response type: {type(response)}")
+            text = _extract_response_text(response)
+            finish_reason = _extract_finish_reason(response)
+            usage_metadata = _extract_usage_metadata(response)
+            _log(
+                f"Gemini finish_reason={finish_reason or 'unknown'} "
+                f"usage={usage_metadata or {}} latency_ms={latency_ms} "
+                f"tokens={max_output_tokens}"
+            )
+            _log(f"Gemini text: {text!r}")
+            if finish_reason and str(finish_reason).strip().upper() in {"MAX_TOKENS", "SAFETY", "RECITATION", "OTHER"}:
+                log_event(
+                    source="gemini",
+                    level="warning",
+                    message="Gemini response có dấu hiệu chưa hoàn chỉnh",
+                    payload={
+                        "finish_reason": finish_reason,
+                        "model": GEMINI_MODEL,
+                        "max_output_tokens": max_output_tokens,
+                        "latency_ms": latency_ms,
+                        "text_preview": (text or "")[:300],
+                        "usage_metadata": usage_metadata,
+                    },
+                )
+            return {
+                "text": (text or "").strip(),
+                "finish_reason": finish_reason,
+                "usage_metadata": usage_metadata,
                 "latency_ms": latency_ms,
-                "error": repr(exc),
-                "exception_type": type(exc).__name__,
-                "exception_message": str(exc),
-            },
-        )
-        return {"text": "", "finish_reason": "", "usage_metadata": {}, "latency_ms": latency_ms}
+            }
+        except Exception as exc:
+            log_event(
+                source="gemini",
+                level="error",
+                message="Lỗi parse response Gemini",
+                payload={
+                    "model": GEMINI_MODEL,
+                    "latency_ms": latency_ms,
+                    "error": repr(exc),
+                    "exception_type": type(exc).__name__,
+                    "exception_message": str(exc),
+                    "retry_count": retry_count,
+                },
+            )
+            return {"text": "", "finish_reason": "", "usage_metadata": {}, "latency_ms": latency_ms}
+
+    # Should not reach here
+    return {"text": "", "finish_reason": "", "usage_metadata": {}}
 
 
 def _strip_code_fence(text: str) -> str:

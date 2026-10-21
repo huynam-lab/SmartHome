@@ -1,97 +1,5 @@
 {
   "devices": {
-    "dieu_hoa": {
-      "id": "dieu_hoa",
-      "template_id": "dieu_hoa",
-      "name": "Điều hoà",
-      "device_kind": "air_conditioner",
-      "control_type": "ir",
-      "capabilities": [
-        "power",
-        "temperature",
-        "mode",
-        "fan_speed",
-        "timer"
-      ],
-      "brand": "generic",
-      "model": "",
-      "room": "",
-      "enabled": true,
-      "aliases": [
-        "dieu_hoa",
-        "dieu hoa",
-        "điều hoà"
-      ],
-      "state_mode": "optimistic",
-      "state": {
-        "power": "unknown",
-        "mode": null,
-        "temperature": null,
-        "fan_speed": null,
-        "availability": "online"
-      },
-      "actions": {
-        "bat": {
-          "type": "ir",
-          "file": "ir_7383caff04e7d6f2.bin",
-          "phrases": [
-            "Bật điều hoà"
-          ],
-          "semantic": {
-            "domain": "power",
-            "operation": "on"
-          }
-        },
-        "tat": {
-          "type": "ir",
-          "file": "ir_42bbbcebde1bf185.bin",
-          "phrases": [
-            "Tắt điều hoà"
-          ],
-          "semantic": {
-            "domain": "power",
-            "operation": "off"
-          }
-        },
-        "25_do": {
-          "type": "ir",
-          "file": "ir_33f7cc9b2aa5028b.bin",
-          "phrases": [
-            "Bật điều hoà 25 độ"
-          ],
-          "semantic": {
-            "domain": "climate",
-            "operation": "set_temperature",
-            "temperature_c": 25
-          }
-        },
-        "26_do": {
-          "type": "ir",
-          "file": "ir_bbee95db5cbc547a.bin",
-          "phrases": [
-            "Bật điều hoà 26 độ"
-          ],
-          "semantic": {
-            "domain": "climate",
-            "operation": "set_temperature",
-            "temperature_c": 26
-          }
-        },
-        "27_do": {
-          "type": "ir",
-          "file": "ir_83cff579d65fe883.bin",
-          "phrases": [
-            "Bật điều hoà 27 độ"
-          ],
-          "semantic": {
-            "domain": "climate",
-            "operation": "set_temperature",
-            "temperature_c": 27
-          }
-        }
-      },
-      "presets": {}
-    },
     "den_san": {
       "id": "den_san",
       "template_id": "den_thong_minh",
@@ -238,6 +146,110 @@
           "semantic": {
             "domain": "power",
             "operation": "off"
+          }
+        }
+      },
+      "presets": {}
+    },
+    "dieu_hoa": {
+      "id": "dieu_hoa",
+      "template_id": "dieu_hoa",
+      "name": "Điều hòa",
+      "device_kind": "air_conditioner",
+      "control_type": "ir",
+      "capabilities": [
+        "power",
+        "temperature",
+        "mode",
+        "fan_speed",
+        "timer"
+      ],
+      "brand": "generic",
+      "model": "",
+      "room": "",
+      "enabled": true,
+      "aliases": [
+        "dieu_hoa",
+        "dieu hoa",
+        "điều hòa"
+      ],
+      "state_mode": "optimistic",
+      "state": {
+        "power": "unknown",
+        "mode": null,
+        "temperature": null,
+        "fan_speed": null,
+        "availability": "online"
+      },
+      "actions": {
+        "bat": {
+          "type": "ir",
+          "file": "ir_58d2046d225feeaf.bin",
+          "phrases": [
+            "Bật điều hòa"
+          ],
+          "semantic": {
+            "domain": "power",
+            "operation": "on"
+          }
+        },
+        "tat": {
+          "type": "ir",
+          "file": "ir_ea81715e31c2d0e0.bin",
+          "phrases": [
+            "Tắt điều hòa"
+          ],
+          "semantic": {
+            "domain": "power",
+            "operation": "off"
+          }
+        },
+        "24": {
+          "type": "ir",
+          "file": "ir_a2993fa988a7ba0c.bin",
+          "phrases": [
+            "Bật điều hoà 24 độ"
+          ],
+          "semantic": {
+            "domain": "climate",
+            "operation": "set_temperature",
+            "temperature_c": 24
+          }
+        },
+        "25": {
+          "type": "ir",
+          "file": "ir_6cb6ba4aaf99ffff.bin",
+          "phrases": [
+            "Bật điều hoà 25 độ"
+          ],
+          "semantic": {
+            "domain": "climate",
+            "operation": "set_temperature",
+            "temperature_c": 25
+          }
+        },
+        "26": {
+          "type": "ir",
+          "file": "ir_071c1b10196ec7a9.bin",
+          "phrases": [
+            "Bật điều hoà 26 độ"
+          ],
+          "semantic": {
+            "domain": "climate",
+            "operation": "set_temperature",
+            "temperature_c": 26
+          }
+        },
+        "27": {
+          "type": "ir",
+          "file": "ir_71c53caa4748067c.bin",
+          "phrases": [
+            "Bật điều hoà 27 độ"
+          ],
+          "semantic": {
+            "domain": "climate",
+            "operation": "set_temperature",
+            "temperature_c": 27
           }
         }
       },

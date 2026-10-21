@@ -17,7 +17,6 @@ class DeviceController(Protocol):
 
 class IRDeviceController:
     """Điều khiển thiết bị IR qua Broadlink."""
-
     controller_type = "ir"
 
     def execute(self, device: Dict[str, Any], action: str, packet_info: Dict[str, Any]) -> Dict[str, Any]:
@@ -156,7 +155,6 @@ class WifiDeviceController:
             "packet_path": packet_info.get("packet_path"),
             "details": {"reason": "not_implemented"},
         }
-
 
 class RFDeviceController:
     """Điều khiển thiết bị RF qua Broadlink."""

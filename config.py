@@ -5,10 +5,6 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 def _load_dotenv_if_present():
-    """Nap file .env cung cap voi config.py neu bien moi truong chua co.
-    Giup app van doc duoc GEMINI_API_KEY khi chay bang service/IDE
-    ma khong can `source .env` thu cong.
-    """
     env_path = os.path.join(BASE_DIR, ".env")
     if not os.path.exists(env_path):
         return
@@ -27,8 +23,6 @@ def _load_dotenv_if_present():
     except Exception:
         # Khong chan app khoi dong neu file .env loi format.
         pass
-
-
 _load_dotenv_if_present()
 
 IR_PACKET_DIR = os.path.join(BASE_DIR, "data", "ir_packets")
@@ -44,20 +38,23 @@ LEARN_WAIT_SECONDS = 15
 BROADLINK_CACHE_TTL_SECONDS = float(os.getenv("BROADLINK_CACHE_TTL_SECONDS", "20"))
 BROADLINK_DEVICE_IP = os.getenv("BROADLINK_DEVICE_IP", "").strip()
 BROADLINK_DEVICE_MAC = os.getenv("BROADLINK_DEVICE_MAC", "").strip().lower()
-
 EXIT_WORDS = [
-    "ve thoi",
-    "về thôi"
+    "dừng lại",
+    "dừng",
 ]
-
 WAKE_WORDS = [
     "li ly oi",
     "li ly ơi",
     "lily oi",
     "lily ơi",
 ]
-
+# Gemini API Key Management - Support for key rotation
+GEMINI_API_KEY1 = os.getenv("GEMINI_API_KEY1", "").replace("\r", "").replace("\n", "").strip()
+GEMINI_API_KEY2 = os.getenv("GEMINI_API_KEY2", "").replace("\r", "").replace("\n", "").strip()
+# Fallback to single key if not using key rotation
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").replace("\r", "").replace("\n", "").strip()
+if not GEMINI_API_KEY and GEMINI_API_KEY1:
+    GEMINI_API_KEY = GEMINI_API_KEY1
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 GEMINI_TIMEOUT_SECONDS = int(os.getenv("GEMINI_TIMEOUT_SECONDS", "8"))
 GEMINI_RPM_LIMIT = int(os.getenv("GEMINI_RPM_LIMIT", "20"))
@@ -68,7 +65,6 @@ GEMINI_UNAVAILABLE_TEXT = os.getenv(
     "GEMINI_UNAVAILABLE_TEXT",
     "Em chưa trả lời được bằng Gemini lúc này. Anh/chị thử lại giúp em ạ.",
 )
-
 WEATHER_ENABLED = os.getenv("WEATHER_ENABLED", "1") == "1"
 WEATHER_LATITUDE = float(os.getenv("WEATHER_LATITUDE", "10.7769"))
 WEATHER_LONGITUDE = float(os.getenv("WEATHER_LONGITUDE", "106.7009"))
@@ -77,7 +73,6 @@ DEVICE_LOCATION_NAME = os.getenv("DEVICE_LOCATION_NAME", WEATHER_LOCATION_NAME).
 DEVICE_LATITUDE = float(os.getenv("DEVICE_LATITUDE", str(WEATHER_LATITUDE)))
 DEVICE_LONGITUDE = float(os.getenv("DEVICE_LONGITUDE", str(WEATHER_LONGITUDE)))
 WEATHER_API_TIMEOUT_SECONDS = float(os.getenv("WEATHER_API_TIMEOUT_SECONDS", "6"))
-
 LISTEN_TIMEOUT = int(os.getenv("LISTEN_TIMEOUT", "8"))
 PHRASE_TIME_LIMIT = int(os.getenv("PHRASE_TIME_LIMIT", "6"))
 AMBIENT_NOISE_DURATION = float(os.getenv("AMBIENT_NOISE_DURATION", "1"))
@@ -90,7 +85,6 @@ MIC_PREFERRED_KEYWORDS = tuple(
     for part in os.getenv("MIC_PREFERRED_KEYWORDS", "usb,mic,microphone,pulse,default").split(",")
     if part.strip()
 )
-
 WAKE_REPLY_TEXT = os.getenv("WAKE_REPLY_TEXT", "Vâng , có em đây ")
 ENABLE_TTS = os.getenv("ENABLE_TTS", "1") == "1"
 TTS_LANGUAGE_CODE = os.getenv("TTS_LANGUAGE_CODE", "vi-VN")

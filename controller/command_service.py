@@ -17,7 +17,6 @@ from speech.tts import speak_text_async
 
 SAFE_AMBIGUOUS_REPLY = "Anh/chị nói rõ giúp em là bật hay tắt thiết bị ạ."
 
-
 def _dedupe_action_sequence(actions) -> list[str]:
     normalized_actions: list[str] = []
     for raw_action in list(actions or []):

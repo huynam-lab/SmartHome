@@ -28,11 +28,20 @@ def _get_accounts_collection():
 
     client = MongoClient(
         MONGO_URI,
-        serverSelectionTimeoutMS=5000,
-        connectTimeoutMS=5000,
-        socketTimeoutMS=5000,
+        serverSelectionTimeoutMS=15000,  # Increased from 5s to 15s for SSL handshake
+        connectTimeoutMS=15000,
+        socketTimeoutMS=15000,
+        retryWrites=True,
+        tlsAllowInvalidCertificates=True,  # Allow SSL handshake failures (workaround for network issues)
     )
-    client.admin.command("ping")
+    try:
+        client.admin.command("ping")
+    except Exception as e:
+        # If ping fails but connection object was created, still try to use it
+        # This helps in cases where SSL handshake completes after initial timeout
+        import logging
+        logging.warning(f"MongoDB ping failed: {type(e).__name__}: {e}, but continuing with connection")
+    
     collection = client[MONGO_DB_NAME][AUTH_COLLECTION_NAME]
     collection.create_index("email", unique=True)
     return collection
